@@ -486,20 +486,24 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
   }
 
   return (
-    <div style={{ width: "100%", height: 72 }}>
+    <div style={{ width: "100%", height: 110 }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ left: 6, right: 6, top: 6, bottom: 8 }}>
+        <LineChart data={data} margin={{ left: 4, right: 8, top: 6, bottom: 4 }}>
           <XAxis
             dataKey="day"
-            tick={false}
+            tick={{ fontSize: 10, fill: "var(--text-muted)" }}
             tickLine={false}
             axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+            tickFormatter={(v: string) => { const d = new Date(v + "T00:00:00"); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }}
+            interval="preserveStartEnd"
+            minTickGap={40}
           />
           <YAxis
-            tick={false}
+            tick={{ fontSize: 10, fill: "var(--text-muted)" }}
             tickLine={false}
             axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
-            width={10}
+            width={36}
+            tickFormatter={(v: number) => formatCompactNumber(v)}
           />
           <Line
             type="monotone"
