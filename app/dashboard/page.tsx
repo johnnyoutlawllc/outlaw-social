@@ -835,7 +835,9 @@ function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={36} />
                 <Tooltip
-                  contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
+                  wrapperStyle={{ background: "transparent", border: "none" }}
+                  contentStyle={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, padding: "6px 10px" }}
                   formatter={(v: unknown) => [formatCompactNumber(Number(v)), metric]}
                 />
                 <Bar dataKey="value" radius={[3, 3, 0, 0]}>
@@ -853,6 +855,8 @@ function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
 }
 // ---- Posting Calendar ----
 function PostingCalendarCard({ data }: { data: DashboardPayload }) {
+  const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
+
   const calendarMap = useMemo(() => {
     const map: { [d: string]: { count: number; platforms: Platform[] } } = {};
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
@@ -890,10 +894,21 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
     });
   }, []);
 
+  const hovPosts = useMemo(() => {
+    if (!calHov) return null;
+    const byPlatform: { platform: Platform; posts: TopPost[] }[] = [];
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+      const posts = drivers[calHov.date] ?? [];
+      if (posts.length > 0) byPlatform.push({ platform: p, posts });
+    });
+    return byPlatform.length > 0 ? byPlatform : null;
+  }, [calHov, data]);
+
   const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
   return (
-    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+    <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
         Post activity across all platforms — last 3 months.
@@ -913,13 +928,16 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
                 const entry = calendarMap[cell.date];
                 const intensity = entry ? entry.count / maxCount : 0;
                 const bg = entry ? "rgba(255,107,53," + Math.max(0.25, intensity) + ")" : "rgba(255,255,255,0.04)";
-                const tipText = entry
-                  ? cell.tip + ": " + entry.count + " post" + (entry.count !== 1 ? "s" : "") + " (" + entry.platforms.map((p) => PLATFORM_LABELS[p]).join(", ") + ")"
-                  : cell.tip;
                 return (
                   <div
                     key={cell.date}
-                    title={tipText}
+                    onMouseEnter={(e) => {
+                      if (entry) {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setCalHov({ date: cell.date, x: rect.left, y: rect.bottom });
+                      }
+                    }}
+                    onMouseLeave={() => setCalHov(null)}
                     style={{
                       aspectRatio: "1",
                       borderRadius: 3,
@@ -929,6 +947,7 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
                       justifyContent: "center",
                       fontSize: 9,
                       color: entry ? "rgba(255,255,255,0.85)" : "var(--text-muted)",
+                      cursor: entry ? "pointer" : "default",
                     }}
                   >
                     {cell.dayNum > 0 ? cell.dayNum : null}
@@ -946,19 +965,63 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
         ))}
         <span>More</span>
       </div>
+
+      {calHov && hovPosts && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.min(calHov.x, (typeof window !== "undefined" ? window.innerWidth : 900) - 300),
+            top: calHov.y + 8,
+            width: 280,
+            background: "#111",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: 14,
+            zIndex: 1000,
+            pointerEvents: "none",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            fontSize: 12,
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 10 }}>{formatShortDate(calHov.date)}</div>
+          {hovPosts.map(({ platform, posts }) => (
+            <div key={platform} style={{ marginBottom: 10 }}>
+              <div style={{ color: PLATFORM_COLORS[platform], fontWeight: 700, fontSize: 11, marginBottom: 4 }}>
+                {PLATFORM_LABELS[platform]}
+              </div>
+              {posts.slice(0, 4).map((post) => (
+                <div key={post.id} style={{ marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                  <div style={{ color: "#fff", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {post.title || "Untitled"}
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 10, display: "flex", gap: 10 }}>
+                    <span>{formatCompactNumber(post.likes)} likes</span>
+                    <span>{formatCompactNumber(post.comments)} comments</span>
+                    <span>{formatCompactNumber(post.shares)} shares</span>
+                  </div>
+                </div>
+              ))}
+              {posts.length > 4 && (
+                <div style={{ color: "var(--text-muted)", fontSize: 10 }}>+{posts.length - 4} more</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 // ---- Top Posts by Platform ----
 function AllTopPostsCard({ data }: { data: DashboardPayload }) {
+  const allPlatforms: Platform[] = ["facebook", "instagram", "tiktok"];
+  const [active, setActive] = useState<Platform[]>(["facebook", "instagram", "tiktok"]);
+  const [sortBy, setSortBy] = useState("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [hovered, setHovered] = useState<{ platform: Platform; postId: string; x: number; y: number } | null>(null);
-  const [activePlatform, setActivePlatform] = useState<Platform>("facebook");
-
-  const platforms: Platform[] = ["facebook", "instagram", "tiktok"];
 
   const platformAvg = useMemo(() => {
     const result = {} as Record<Platform, { avgLikes: number; avgComments: number; avgShares: number }>;
-    platforms.forEach((p) => {
+    allPlatforms.forEach((p) => {
       const posts = data.platforms[p].topPosts;
       result[p] = {
         avgLikes: posts.length ? Math.round(posts.reduce((s, post) => s + post.likes, 0) / posts.length) : 0,
@@ -969,127 +1032,170 @@ function AllTopPostsCard({ data }: { data: DashboardPayload }) {
     return result;
   }, [data]);
 
-  const activeDetail = data.platforms[activePlatform];
-  const posts = activeDetail.topPosts;
-  const color = PLATFORM_COLORS[activePlatform];
-  const avg = platformAvg[activePlatform];
+  const secondaryVal = (platform: Platform, post: TopPost) =>
+    platform === "instagram" ? post.saves : platform === "facebook" ? post.impressions : post.views;
+
+  const allPosts = useMemo(() => {
+    const combined: (TopPost & { platform: Platform })[] = [];
+    allPlatforms.forEach((p) => {
+      if (active.includes(p)) {
+        data.platforms[p].topPosts.forEach((post) => combined.push({ ...post, platform: p }));
+      }
+    });
+    combined.sort((a, b) => {
+      let av = 0;
+      let bv = 0;
+      if (sortBy === "date") {
+        av = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        bv = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      } else if (sortBy === "likes") {
+        av = a.likes; bv = b.likes;
+      } else if (sortBy === "comments") {
+        av = a.comments; bv = b.comments;
+      } else if (sortBy === "shares") {
+        av = a.shares; bv = b.shares;
+      } else if (sortBy === "secondary") {
+        av = secondaryVal(a.platform, a);
+        bv = secondaryVal(b.platform, b);
+      }
+      return sortDir === "desc" ? bv - av : av - bv;
+    });
+    return combined;
+  }, [data, active, sortBy, sortDir]);
 
   const hoveredPost = useMemo(
     () => (hovered ? data.platforms[hovered.platform].topPosts.find((p) => p.id === hovered.postId) ?? null : null),
     [hovered, data]
   );
 
+  const togglePlatform = (p: Platform) => {
+    setActive((prev) => {
+      if (prev.includes(p)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((x) => x !== p);
+      }
+      return [...prev, p];
+    });
+  };
+
+  const toggleSort = (key: string) => {
+    if (sortBy === key) {
+      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    } else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
+  };
+
+  const sortIcon = (key: string) => {
+    if (sortBy !== key) return " ↕";
+    return sortDir === "desc" ? " ↓" : " ↑";
+  };
+
+  const colStyle = (key: string): React.CSSProperties => ({
+    textAlign: "right",
+    padding: "6px 8px",
+    color: sortBy === key ? "var(--accent)" : "var(--text-muted)",
+    fontWeight: 600,
+    fontSize: 11,
+    whiteSpace: "nowrap" as const,
+    cursor: "pointer",
+    userSelect: "none" as const,
+  });
+
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Top Posts by Platform</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posts by Platform</h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-        Hover a row to compare performance vs. platform average.
+        Hover a row to compare vs. platform average. Click headers to sort.
       </p>
 
-      {/* Platform tabs */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {platforms.map((p) => (
+        {allPlatforms.map((p) => (
           <button
             key={p}
             type="button"
-            onClick={() => setActivePlatform(p)}
+            onClick={() => togglePlatform(p)}
             style={{
               padding: "6px 14px",
               borderRadius: 999,
-              border: `1px solid ${activePlatform === p ? PLATFORM_COLORS[p] : "var(--border)"}`,
-              background: activePlatform === p ? `${PLATFORM_COLORS[p]}22` : "transparent",
-              color: activePlatform === p ? PLATFORM_COLORS[p] : "var(--text-muted)",
+              border: "1px solid " + (active.includes(p) ? PLATFORM_COLORS[p] : "var(--border)"),
+              background: active.includes(p) ? PLATFORM_COLORS[p] + "22" : "transparent",
+              color: active.includes(p) ? PLATFORM_COLORS[p] : "var(--text-muted)",
               cursor: "pointer",
               fontSize: 12,
               fontWeight: 700,
             }}
           >
-            {PLATFORM_LABELS[p]}
+            {PLATFORM_LABELS[p]} ({data.platforms[p].topPosts.length})
           </button>
         ))}
+        <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>
+          {allPosts.length} posts
+        </span>
       </div>
 
-      {/* Table */}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr style={{ borderBottom: "1px solid var(--border)" }}>
-              {["Post", "Date", "Likes", "Comments", "Shares", "Eng. Score"].map((h, i) => (
-                <th
-                  key={h}
-                  style={{
-                    textAlign: i === 0 ? "left" : "right",
-                    padding: "6px 8px",
-                    color: "var(--text-muted)",
-                    fontWeight: 600,
-                    fontSize: 11,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {h}
-                </th>
-              ))}
+              <th style={{ textAlign: "left", padding: "6px 8px", color: "var(--text-muted)", fontWeight: 600, fontSize: 11 }}>Post</th>
+              <th onClick={() => toggleSort("date")} style={colStyle("date")}>Date{sortIcon("date")}</th>
+              <th onClick={() => toggleSort("likes")} style={colStyle("likes")}>Likes{sortIcon("likes")}</th>
+              <th onClick={() => toggleSort("comments")} style={colStyle("comments")}>Comments{sortIcon("comments")}</th>
+              <th onClick={() => toggleSort("shares")} style={colStyle("shares")}>Shares{sortIcon("shares")}</th>
+              <th onClick={() => toggleSort("secondary")} style={colStyle("secondary")}>Views/Saves/Impr.{sortIcon("secondary")}</th>
             </tr>
           </thead>
           <tbody>
-            {posts.map((post) => (
-              <tr
-                key={post.id}
-                onMouseEnter={(e) => {
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  setHovered({ platform: activePlatform, postId: post.id, x: rect.left, y: rect.bottom });
-                  (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
-                }}
-                onMouseLeave={(e) => {
-                  setHovered(null);
-                  (e.currentTarget as HTMLElement).style.background = "";
-                }}
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}
-              >
-                <td style={{ padding: "8px 8px", maxWidth: 260, overflow: "hidden" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    {post.imageUrl ? (
-                      <img src={post.imageUrl} alt="" style={{ width: 36, height: 36, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
-                    ) : (
-                      <div
-                        style={{
-                          width: 36, height: 36, borderRadius: 4, background: `${color}22`, flexShrink: 0,
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                        }}
-                      >
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
-                      </div>
-                    )}
-                    <span style={{ color: "var(--text-muted)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
-                      {post.title || "—"}
-                    </span>
-                  </div>
-                </td>
-                <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
-                  {post.createdAt ? post.createdAt.slice(0, 10) : "—"}
-                </td>
-                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.likes)}</td>
-                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.comments)}</td>
-                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.shares)}</td>
-                <td style={{ padding: "8px 8px", textAlign: "right" }}>
-                  <span style={{ background: `${color}22`, color, padding: "2px 8px", borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
-                    {Math.round(post.engagementScore)}
-                  </span>
-                </td>
-              </tr>
-            ))}
-            {posts.length === 0 && (
+            {allPosts.map((post) => {
+              const color = PLATFORM_COLORS[post.platform];
+              return (
+                <tr
+                  key={post.platform + "-" + post.id}
+                  onMouseEnter={(e) => {
+                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    setHovered({ platform: post.platform, postId: post.id, x: rect.left, y: rect.bottom });
+                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+                  }}
+                  onMouseLeave={(e) => {
+                    setHovered(null);
+                    (e.currentTarget as HTMLElement).style.background = "";
+                  }}
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}
+                >
+                  <td style={{ padding: "8px 8px", maxWidth: 280 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 6, height: 6, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                      {post.imageUrl && (
+                        <img src={post.imageUrl} alt="" style={{ width: 32, height: 32, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
+                      )}
+                      <span style={{ color: "var(--text-muted)", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                        {post.title || "—"}
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 12 }}>
+                    {post.createdAt ? post.createdAt.slice(0, 10) : "—"}
+                  </td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.likes)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.comments)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.shares)}</td>
+                  <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)" }}>
+                    {formatCompactNumber(secondaryVal(post.platform, post))}
+                  </td>
+                </tr>
+              );
+            })}
+            {allPosts.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>
-                  No posts available.
-                </td>
+                <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>No posts.</td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
 
-      {/* Hover tooltip */}
       {hoveredPost && hovered && (
         <div
           style={{
@@ -1111,41 +1217,27 @@ function AllTopPostsCard({ data }: { data: DashboardPayload }) {
             <BarChart
               layout="vertical"
               data={[
-                { metric: "Likes", post: hoveredPost.likes, avg: avg.avgLikes },
-                { metric: "Comments", post: hoveredPost.comments, avg: avg.avgComments },
-                { metric: "Shares", post: hoveredPost.shares, avg: avg.avgShares },
+                { metric: "Likes", post: hoveredPost.likes, avg: platformAvg[hovered.platform].avgLikes },
+                { metric: "Comments", post: hoveredPost.comments, avg: platformAvg[hovered.platform].avgComments },
+                { metric: "Shares", post: hoveredPost.shares, avg: platformAvg[hovered.platform].avgShares },
               ]}
               margin={{ left: 56, right: 8, top: 0, bottom: 0 }}
             >
               <XAxis type="number" hide />
-              <YAxis
-                type="category"
-                dataKey="metric"
-                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
-                axisLine={false}
-                tickLine={false}
-                width={56}
-              />
-              <Bar dataKey="post" fill={color} radius={[0, 2, 2, 0]} name="This post" />
+              <YAxis type="category" dataKey="metric" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={56} />
+              <Bar dataKey="post" fill={PLATFORM_COLORS[hovered.platform]} radius={[0, 2, 2, 0]} name="This post" />
               <Bar dataKey="avg" fill="rgba(255,255,255,0.15)" radius={[0, 2, 2, 0]} name="Avg" />
             </BarChart>
           </ResponsiveContainer>
           <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
-            <span>
-              <span style={{ background: color, borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />
-              This post
-            </span>
-            <span>
-              <span style={{ background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />
-              Avg
-            </span>
+            <span><span style={{ background: PLATFORM_COLORS[hovered.platform], borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />This post</span>
+            <span><span style={{ background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />Avg</span>
           </div>
         </div>
       )}
     </div>
   );
 }
-
 function TrendCard({
   title,
   note,
