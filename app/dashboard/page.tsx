@@ -9,13 +9,13 @@ interface Snapshot {
   reach: number | null;
   impressions: number | null;
   platform: string;
-  display_name: string;
+
 }
 
 interface Account {
   id: string;
   platform: string;
-  display_name: string;
+
   platform_username: string;
   avatar_url: string;
   last_synced_at: string;
