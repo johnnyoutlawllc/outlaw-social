@@ -481,10 +481,11 @@ function AxisToggle({
   );
 }
 
-function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
+function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[]; color: string; includeZero?: boolean }) {
   if (data.length === 0) {
     return <div style={{ height: 56, color: "var(--text-muted)", fontSize: 12 }}>No trend yet</div>;
   }
+  const yDomain = useMemo(() => getNumericDomain(data.map(d => d.value), includeZero), [data, includeZero]);
 
   return (
     <div style={{ width: "100%", height: 110 }}>
@@ -500,6 +501,7 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
             minTickGap={40}
           />
           <YAxis
+            domain={yDomain}
             tick={{ fontSize: 10, fill: "var(--text-muted)" }}
             tickLine={false}
             axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
@@ -531,9 +533,13 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
 function SummaryTile({
   summary,
   onSelect,
+  metric = "followers",
+  includeZero = true,
 }: {
   summary: Summary;
   onSelect?: (platform: Platform) => void;
+  metric?: "followers" | "reach";
+  includeZero?: boolean;
 }) {
   const color = PLATFORM_COLORS[summary.platform];
   const sharedStyle = {
@@ -584,7 +590,7 @@ function SummaryTile({
         </div>
       </div>
 
-      <MiniSparkline data={summary.followersTrend} color={color} />
+      <MiniSparkline data={metric === "followers" ? summary.followersTrend : summary.performanceTrend} color={color} includeZero={includeZero} />
 
       <div
         style={{
@@ -597,15 +603,15 @@ function SummaryTile({
       >
         <div>
           <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>
-            {summary.performanceLabel}
+            {metric === "followers" ? "followers" : summary.performanceLabel}
           </div>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCompactNumber(summary.performanceLatest)}</div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCompactNumber(metric === "followers" ? summary.latestFollowers : summary.performanceLatest)}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          <div style={{ color: summary.performanceDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
-            {formatDelta(summary.performanceDelta)}
+          <div style={{ color: (metric === "followers" ? summary.deltaFollowers : summary.performanceDelta) >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
+            {formatDelta(metric === "followers" ? summary.deltaFollowers : summary.performanceDelta)}
           </div>
-          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{summary.performanceNote}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{metric === "followers" ? "tracked period" : summary.performanceNote}</div>
         </div>
       </div>
     </>
@@ -635,31 +641,46 @@ function SummaryTile({
   );
 }
 
-function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
-  const [includeZero, setIncludeZero] = useState(true);
+function FollowersOverviewCard({ data, allData, includeZero = true, metric = "followers" }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach" }) {
+  const chartData = useMemo(() => {
+    if (metric === "followers") return data;
+    // Build TrendPoint[] from per-platform performanceTrend
+    const map: { [day: string]: TrendPoint } = {};
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      (allData.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
+        if (!map[day]) map[day] = { day, facebook: null, instagram: null, tiktok: null };
+        map[day][p] = value;
+      });
+    });
+    return Object.values(map).sort((a, b) => a.day.localeCompare(b.day));
+  }, [data, allData, metric]);
+
   const yDomain = useMemo(
     () =>
       getNumericDomain(
-        data.flatMap((point) => [point.facebook, point.instagram, point.tiktok].filter((value): value is number => value !== null)),
+        chartData.flatMap((point) => [point.facebook, point.instagram, point.tiktok].filter((value): value is number => value !== null)),
         includeZero
       ),
-    [data, includeZero]
+    [chartData, includeZero]
   );
+
+  const title = metric === "followers" ? "Daily followers by platform" : "Daily reach / views by platform";
+  const yLabel = metric === "followers" ? "Followers" : "Reach / Views";
+  const note = metric === "followers"
+    ? "Cross-platform follower history. TikTok is still on sparse account-history snapshots."
+    : "Facebook = page impressions unique · Instagram = account reach · TikTok = daily view delta.";
 
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24 }}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
         <div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>Daily followers by platform</h2>
-          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-            Cross-platform follower history. TikTok is still on sparse account-history snapshots.
-          </p>
+          <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>{title}</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{note}</p>
         </div>
-        <AxisToggle includeZero={includeZero} onChange={setIncludeZero} />
       </div>
 
       <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={data} margin={{ left: 8, right: 18, top: 12, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ left: 8, right: 18, top: 12, bottom: 0 }}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
           <XAxis
             dataKey="day"
@@ -682,7 +703,7 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
             tickFormatter={(value: number) => formatCompactNumber(value)}
             width={64}
             label={{
-              value: "Followers",
+              value: yLabel,
               angle: -90,
               position: "insideLeft",
               fill: "var(--text-muted)",
@@ -2000,6 +2021,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [globalIncludeZero, setGlobalIncludeZero] = useState(true);
+  const [globalMetric, setGlobalMetric] = useState<"followers" | "reach">("followers");
 
   useEffect(() => {
     let cancelled = false;
@@ -2117,6 +2140,19 @@ export default function DashboardPage() {
 
       {activeTab === "all" ? (
         <>
+          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
+              {(["followers", "reach"] as const).map((m) => (
+                <button key={m} type="button" onClick={() => setGlobalMetric(m)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalMetric === m ? "var(--accent)" : "transparent", color: globalMetric === m ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>
+                  {m.charAt(0).toUpperCase() + m.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
+              <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
+              <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
+            </div>
+          </div>
           <div
             style={{
               display: "grid",
@@ -2126,11 +2162,11 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} />
             ))}
           </div>
 
-          <FollowersOverviewCard data={data.trend} />
+          <FollowersOverviewCard data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} />
           <PerformanceTrendsGrid data={data} />
           <KpisByPlatformCard data={data} />
           <PostingCalendarCard data={data} />
