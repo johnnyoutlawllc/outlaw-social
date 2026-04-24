@@ -641,10 +641,9 @@ function SummaryTile({
   );
 }
 
-function FollowersOverviewCard({ data, allData, includeZero = true, metric = "followers" }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach" }) {
+function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach" }) {
   const chartData = useMemo(() => {
     if (metric === "followers") return data;
-    // Build TrendPoint[] from per-platform performanceTrend
     const map: { [day: string]: TrendPoint } = {};
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
       (allData.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
@@ -656,89 +655,43 @@ function FollowersOverviewCard({ data, allData, includeZero = true, metric = "fo
   }, [data, allData, metric]);
 
   const yDomain = useMemo(
-    () =>
-      getNumericDomain(
-        chartData.flatMap((point) => [point.facebook, point.instagram, point.tiktok].filter((value): value is number => value !== null)),
-        includeZero
-      ),
+    () => getNumericDomain(
+      chartData.flatMap((p) => [p.facebook, p.instagram, p.tiktok].filter((v): v is number => v !== null)),
+      includeZero
+    ),
     [chartData, includeZero]
   );
 
-  const title = metric === "followers" ? "Daily followers by platform" : "Daily reach / views by platform";
-  const yLabel = metric === "followers" ? "Followers" : "Reach / Views";
-  const note = metric === "followers"
-    ? "Cross-platform follower history. TikTok is still on sparse account-history snapshots."
-    : "Facebook = page impressions unique · Instagram = account reach · TikTok = daily view delta.";
+  const label = metric === "followers" ? "All Platforms · Followers" : "All Platforms · Reach / Views";
 
   return (
-    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
-        <div>
-          <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>{title}</h2>
-          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>{note}</p>
-        </div>
+    <div className="card" style={{ padding: 22 }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+        {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
+          <span key={p} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-muted)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], display: "inline-block" }} />
+            {PLATFORM_LABELS[p]}
+          </span>
+        ))}
       </div>
-
-      <ResponsiveContainer width="100%" height={320}>
-        <LineChart data={chartData} margin={{ left: 8, right: 18, top: 12, bottom: 0 }}>
-          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-          <XAxis
-            dataKey="day"
-            tickFormatter={formatShortDate}
-            stroke="var(--text-muted)"
-            tick={{ fontSize: 12 }}
-            minTickGap={24}
-            label={{
-              value: "Date",
-              position: "insideBottom",
-              offset: -2,
-              fill: "var(--text-muted)",
-              fontSize: 12,
-            }}
-          />
-          <YAxis
-            domain={yDomain}
-            stroke="var(--text-muted)"
-            tick={{ fontSize: 12 }}
-            tickFormatter={(value: number) => formatCompactNumber(value)}
-            width={64}
-            label={{
-              value: yLabel,
-              angle: -90,
-              position: "insideLeft",
-              fill: "var(--text-muted)",
-              fontSize: 12,
-              dx: -8,
-            }}
-          />
-          <Tooltip
-            contentStyle={{
-              background: "#0c0c0c",
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-            }}
-            labelFormatter={(label) => formatShortDate(String(label))}
-            formatter={(value, name) => {
-              const key = String(name) as Platform;
-              return [formatCompactNumber(Number(value ?? 0)), PLATFORM_LABELS[key] ?? String(name)];
-            }}
-          />
-          <Legend />
-          {(Object.keys(PLATFORM_COLORS) as Platform[]).map((platform) => (
-            <Line
-              key={platform}
-              type="monotone"
-              dataKey={platform}
-              stroke={PLATFORM_COLORS[platform]}
-              strokeWidth={3}
-              dot={{ r: 2 }}
-              activeDot={{ r: 5 }}
-              connectNulls
-              name={PLATFORM_LABELS[platform]}
+      <div style={{ width: "100%", height: 160 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ left: 2, right: 8, top: 4, bottom: 4 }}>
+            <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--text-muted)" }} tickLine={false} axisLine={false} tickFormatter={formatShortDate} interval="preserveStartEnd" minTickGap={40} />
+            <YAxis domain={yDomain} tick={{ fontSize: 10, fill: "var(--text-muted)" }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={36} />
+            <Tooltip
+              contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}
+              labelFormatter={(l) => formatShortDate(String(l))}
+              formatter={(value, name) => [formatCompactNumber(Number(value ?? 0)), PLATFORM_LABELS[name as Platform] ?? String(name)]}
             />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
+            {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
+              <Line key={p} type="monotone" dataKey={p} stroke={PLATFORM_COLORS[p]} strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
+            ))}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -2156,7 +2109,7 @@ export default function DashboardPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
               gap: 16,
               marginBottom: 24,
             }}
@@ -2164,10 +2117,8 @@ export default function DashboardPage() {
             {data.summaries.map((summary) => (
               <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} />
             ))}
+            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} />
           </div>
-
-          <FollowersOverviewCard data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} />
-          <PerformanceTrendsGrid data={data} />
           <KpisByPlatformCard data={data} />
           <PostingCalendarCard data={data} />
           <AllTopPostsCard data={data} />
