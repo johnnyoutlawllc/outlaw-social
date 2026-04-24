@@ -5,15 +5,14 @@ import { useSearchParams } from "next/navigation";
 import { getBrowserSupabaseClient } from "@/lib/supabase";
 
 function LoginContent() {
-  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
-  const next = searchParams.get("next") ?? "/";
+  const searchParams = useSearchParams();
   const error = searchParams.get("error");
 
   async function handleGoogleLogin() {
     setLoading(true);
 
-    const redirectTo = `${window.location.origin}/api/auth/callback?next=${encodeURIComponent(next)}`;
+    const redirectTo = `${window.location.origin}/api/auth/callback`;
     const supabase = getBrowserSupabaseClient();
     const { error: signInError } = await supabase.auth.signInWithOAuth({
       provider: "google",
@@ -45,33 +44,14 @@ function LoginContent() {
       }}
     >
       <div className="card" style={{ width: "100%", maxWidth: 520, padding: 32 }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-          <span
-            style={{
-              display: "inline-flex",
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: "var(--accent)",
-              boxShadow: "0 0 22px rgba(255, 107, 53, 0.4)",
-            }}
-          />
-          <span style={{ color: "var(--text-muted)", fontSize: 13, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Private Access
-          </span>
-        </div>
-
-        <h1 style={{ fontSize: 34, fontWeight: 800, marginBottom: 12 }}>
+        <h1 style={{ fontSize: 34, fontWeight: 800, marginBottom: 24 }}>
           Outlaw Social <span style={{ color: "var(--accent)" }}>Analytics</span>
         </h1>
-        <p style={{ color: "var(--text-muted)", fontSize: 16, lineHeight: 1.6, marginBottom: 28 }}>
-          Sign in with Google to reach the private analytics workspace. Right now only Johnny&apos;s approved accounts can get in.
-        </p>
 
         {errorMessage ? (
           <div
             style={{
-              marginBottom: 20,
+              marginBottom: 24,
               borderRadius: 10,
               border: "1px solid rgba(239, 68, 68, 0.5)",
               background: "rgba(127, 29, 29, 0.35)",
@@ -91,12 +71,8 @@ function LoginContent() {
           disabled={loading}
           style={{ width: "100%", padding: "14px 18px", fontSize: 15 }}
         >
-          {loading ? "Sending you to Google..." : "Continue with Google"}
+          {loading ? "Sending you to Google..." : "Sign in with Google"}
         </button>
-
-        <p style={{ color: "var(--text-muted)", fontSize: 13, marginTop: 18 }}>
-          Allowed users: johnnyoutlawllc@gmail.com and bigsky30media@gmail.com
-        </p>
       </div>
     </div>
   );
