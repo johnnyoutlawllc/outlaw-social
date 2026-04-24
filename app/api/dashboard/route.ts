@@ -13,7 +13,12 @@ type TrendRow = {
   followers: number | string | null;
 };
 
-type PostRow = {
+type DailyMetricRow = {
+  day: string;
+  [key: string]: number | string | null;
+};
+
+type TopPostRow = {
   id: string;
   created_time?: string;
   create_time?: string;
@@ -29,6 +34,51 @@ type PostRow = {
   engagement_score?: number | string | null;
 };
 
+type SummaryRow = {
+  posts_30d?: number | string | null;
+  avg_engagement?: number | string | null;
+  avg_impressions?: number | string | null;
+  avg_views?: number | string | null;
+  total_shares?: number | string | null;
+  best_engagement?: number | string | null;
+  avg_shares?: number | string | null;
+  avg_saves?: number | string | null;
+  avg_duration?: number | string | null;
+  best_views?: number | string | null;
+};
+
+type InstagramMixRow = {
+  media_type: string;
+  posts: number | string | null;
+  avg_engagement: number | string | null;
+  avg_shares: number | string | null;
+  avg_saves: number | string | null;
+};
+
+type ReactionRow = {
+  reaction: string;
+  value: number | string | null;
+};
+
+type DemographicRow = {
+  breakdown_type: string;
+  key: string;
+  value: number | string | null;
+};
+
+type TikTokAccountRow = {
+  follower_count: number | string | null;
+  following_count: number | string | null;
+  likes_count: number | string | null;
+  video_count: number | string | null;
+  is_verified: boolean | null;
+};
+
+type DataPoint = {
+  day: string;
+  value: number;
+};
+
 const OUTLAW_DATA_URL = "https://qijclqubjdvqjsgxvkzk.supabase.co";
 const OUTLAW_DATA_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpamNscXViamR2cWpzZ3h2a3prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwMDEwNjIsImV4cCI6MjA4NjU3NzA2Mn0.E83M4qkoh7d36NBYAg4N4_1FcYJhAstgZg3zUP2NyM8";
@@ -41,22 +91,34 @@ const BIG_SKY_IDS = {
 
 const PLATFORM_META: Record<
   Platform,
-  { label: string; handle: string; metricLabel: string }
+  {
+    label: string;
+    handle: string;
+    metricLabel: string;
+    performanceLabel: string;
+    performanceNote: string;
+  }
 > = {
   facebook: {
     label: "Facebook",
     handle: "Big Sky 30",
     metricLabel: "likes + comments + shares",
+    performanceLabel: "Daily reach",
+    performanceNote: "From page impressions unique",
   },
   instagram: {
     label: "Instagram",
     handle: "@big_sky_30",
     metricLabel: "likes + comments + saves + shares",
+    performanceLabel: "Daily reach",
+    performanceNote: "From Instagram account insights",
   },
   tiktok: {
     label: "TikTok",
     handle: "@big.sky.30",
     metricLabel: "likes + comments + shares",
+    performanceLabel: "Daily views",
+    performanceNote: "Derived from video snapshot deltas",
   },
 };
 
@@ -82,6 +144,46 @@ async function runQuery<T>(sql: string) {
   return (data ?? []) as T[];
 }
 
+function buildDataPoints(rows: DailyMetricRow[], field: string) {
+  return rows.map((row) => ({
+    day: row.day,
+    value: toNumber(row[field]),
+  }));
+}
+
+function getLatestPoint(points: DataPoint[]) {
+  return points.length > 0 ? points[points.length - 1] : null;
+}
+
+function getPointDelta(points: DataPoint[]) {
+  if (points.length < 2) return 0;
+  return points[points.length - 1].value - points[points.length - 2].value;
+}
+
+function getBestPoint(points: DataPoint[]) {
+  return points.reduce<DataPoint | null>((best, point) => {
+    if (!best || point.value > best.value) return point;
+    return best;
+  }, null);
+}
+
+function normalizePost(row: TopPostRow) {
+  return {
+    id: row.id,
+    createdAt: row.created_time ?? row.create_time ?? null,
+    title: row.title ?? "Untitled post",
+    imageUrl: row.image_url,
+    permalink: row.permalink,
+    likes: toNumber(row.likes),
+    comments: toNumber(row.comments),
+    shares: toNumber(row.shares),
+    saves: toNumber(row.saves),
+    views: toNumber(row.views),
+    impressions: toNumber(row.impressions),
+    engagementScore: toNumber(row.engagement_score),
+  };
+}
+
 export async function GET() {
   const authClient = await createServerSupabaseClient();
   const {
@@ -97,7 +199,7 @@ export async function GET() {
   }
 
   try {
-    const trendSql = `
+    const followerTrendSql = `
       with fb as (
         select date(synced_at) as day, max(followers_count) as followers
         from outlaw_data.facebook_page_history
@@ -129,6 +231,73 @@ export async function GET() {
       order by day asc, platform asc
     `;
 
+    const facebookPerformanceSql = `
+      select
+        metric_date as day,
+        max(case when metric_name = 'page_impressions_unique' then metric_value end) as reach,
+        max(case when metric_name = 'page_video_views' then metric_value end) as video_views,
+        max(case when metric_name = 'page_views_total' then metric_value end) as page_views,
+        sum(case when metric_name like 'page_actions_post_reactions_total.%' then metric_value else 0 end) as reactions
+      from outlaw_data.facebook_page_insights
+      where account_id = '${BIG_SKY_IDS.facebook}'
+      group by 1
+      order by 1
+    `;
+
+    const facebookRecentSql = `
+      with metric_rollup as (
+        select
+          post_id,
+          max(case when metric_name = 'post_activity_by_action_type.like' then metric_value end) as likes,
+          max(case when metric_name = 'post_activity_by_action_type.comment' then metric_value end) as comments,
+          max(case when metric_name = 'post_activity_by_action_type.share' then metric_value end) as shares,
+          max(case when metric_name = 'post_impressions_unique' then metric_value end) as impressions,
+          max(case when metric_name = 'post_video_views' then metric_value end) as views
+        from outlaw_data.facebook_post_metrics
+        where account_id = '${BIG_SKY_IDS.facebook}'
+        group by post_id
+      ), recent as (
+        select
+          fp.post_id,
+          fp.created_time,
+          coalesce(m.likes, 0) as likes,
+          coalesce(m.comments, 0) as comments,
+          coalesce(m.shares, 0) as shares,
+          coalesce(m.impressions, 0) as impressions,
+          coalesce(m.views, 0) as views,
+          coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.shares, 0) as engagement
+        from outlaw_data.facebook_posts fp
+        left join metric_rollup m on m.post_id = fp.post_id
+        where fp.account_id = '${BIG_SKY_IDS.facebook}'
+          and fp.created_time >= now() - interval '30 days'
+      )
+      select
+        count(*) as posts_30d,
+        avg(engagement) as avg_engagement,
+        avg(impressions) as avg_impressions,
+        avg(views) as avg_views,
+        sum(shares) as total_shares,
+        max(engagement) as best_engagement
+      from recent
+    `;
+
+    const facebookReactionSql = `
+      with latest_day as (
+        select max(metric_date) as day
+        from outlaw_data.facebook_page_insights
+        where account_id = '${BIG_SKY_IDS.facebook}'
+      )
+      select
+        replace(metric_name, 'page_actions_post_reactions_total.', '') as reaction,
+        metric_value as value
+      from outlaw_data.facebook_page_insights
+      where account_id = '${BIG_SKY_IDS.facebook}'
+        and metric_date = (select day from latest_day)
+        and metric_name like 'page_actions_post_reactions_total.%'
+      order by metric_value desc
+      limit 5
+    `;
+
     const facebookTopPostsSql = `
       with metric_rollup as (
         select
@@ -158,7 +327,95 @@ export async function GET() {
       left join metric_rollup m on m.post_id = fp.post_id
       where fp.account_id = '${BIG_SKY_IDS.facebook}'
       order by engagement_score desc, views desc, created_time desc
-      limit 3
+      limit 5
+    `;
+
+    const instagramPerformanceSql = `
+      select date(date) as day, max(value) as reach
+      from outlaw_data.instagram_insights
+      where account_id = '${BIG_SKY_IDS.instagram}'
+        and metric = 'reach'
+        and period = 'day'
+      group by 1
+      order by 1
+    `;
+
+    const instagramRecentSql = `
+      with metric_rollup as (
+        select
+          imi.media_id,
+          max(case when metric = 'likes' then value end) as likes,
+          max(case when metric = 'comments' then value end) as comments,
+          max(case when metric = 'saved' then value end) as saves,
+          max(case when metric = 'shares' then value end) as shares
+        from outlaw_data.instagram_media_insights imi
+        join outlaw_data.instagram_media im on im.media_id = imi.media_id
+        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        group by imi.media_id
+      ), recent as (
+        select
+          im.media_id,
+          im.timestamp,
+          im.media_type,
+          coalesce(m.likes, 0) as likes,
+          coalesce(m.comments, 0) as comments,
+          coalesce(m.saves, 0) as saves,
+          coalesce(m.shares, 0) as shares,
+          coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.saves, 0) + coalesce(m.shares, 0) as engagement
+        from outlaw_data.instagram_media im
+        left join metric_rollup m on m.media_id = im.media_id
+        where im.account_id = '${BIG_SKY_IDS.instagram}'
+          and im.timestamp >= now() - interval '30 days'
+      )
+      select
+        count(*) as posts_30d,
+        avg(engagement) as avg_engagement,
+        avg(shares) as avg_shares,
+        avg(saves) as avg_saves,
+        max(engagement) as best_engagement
+      from recent
+    `;
+
+    const instagramMixSql = `
+      with metric_rollup as (
+        select
+          imi.media_id,
+          max(case when metric = 'likes' then value end) as likes,
+          max(case when metric = 'comments' then value end) as comments,
+          max(case when metric = 'saved' then value end) as saves,
+          max(case when metric = 'shares' then value end) as shares
+        from outlaw_data.instagram_media_insights imi
+        join outlaw_data.instagram_media im on im.media_id = imi.media_id
+        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        group by imi.media_id
+      )
+      select
+        im.media_type,
+        count(*) as posts,
+        avg(coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.saves, 0) + coalesce(m.shares, 0)) as avg_engagement,
+        avg(coalesce(m.shares, 0)) as avg_shares,
+        avg(coalesce(m.saves, 0)) as avg_saves
+      from outlaw_data.instagram_media im
+      left join metric_rollup m on m.media_id = im.media_id
+      where im.account_id = '${BIG_SKY_IDS.instagram}'
+      group by 1
+      order by posts desc
+    `;
+
+    const instagramDemographicsSql = `
+      with latest_days as (
+        select breakdown_type, max(date(date)) as latest_day
+        from outlaw_data.instagram_demographics
+        where account_id = '${BIG_SKY_IDS.instagram}'
+        group by breakdown_type
+      )
+      select d.breakdown_type, d.key, d.value
+      from outlaw_data.instagram_demographics d
+      join latest_days ld
+        on ld.breakdown_type = d.breakdown_type
+       and ld.latest_day = date(d.date)
+      where d.account_id = '${BIG_SKY_IDS.instagram}'
+      order by d.breakdown_type, d.value desc
     `;
 
     const instagramTopPostsSql = `
@@ -189,7 +446,93 @@ export async function GET() {
       left join metric_rollup m on m.media_id = im.media_id
       where im.account_id = '${BIG_SKY_IDS.instagram}'
       order by engagement_score desc, created_time desc
-      limit 3
+      limit 5
+    `;
+
+    const tiktokPerformanceSql = `
+      with latest_per_video_day as (
+        select
+          s.video_id,
+          date(s.snapshot_timestamp) as day,
+          max(s.snapshot_timestamp) as latest_ts
+        from outlaw_data.tiktok_video_snapshots s
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        group by 1, 2
+      ), daily_snapshots as (
+        select
+          lp.day,
+          s.video_id,
+          s.view_count,
+          s.like_count,
+          s.comment_count,
+          s.share_count
+        from latest_per_video_day lp
+        join outlaw_data.tiktok_video_snapshots s
+          on s.video_id = lp.video_id
+         and s.snapshot_timestamp = lp.latest_ts
+      ), daily_totals as (
+        select
+          day,
+          sum(view_count) as views,
+          sum(like_count) as likes,
+          sum(comment_count) as comments,
+          sum(share_count) as shares
+        from daily_snapshots
+        group by 1
+      )
+      select
+        day,
+        greatest(views - lag(views) over(order by day), 0) as daily_views,
+        greatest(likes - lag(likes) over(order by day), 0) as daily_likes,
+        greatest(comments - lag(comments) over(order by day), 0) as daily_comments,
+        greatest(shares - lag(shares) over(order by day), 0) as daily_shares
+      from daily_totals
+      order by day
+    `;
+
+    const tiktokRecentSql = `
+      with latest_snapshots as (
+        select distinct on (video_id)
+          video_id,
+          view_count,
+          like_count,
+          comment_count,
+          share_count,
+          snapshot_timestamp
+        from outlaw_data.tiktok_video_snapshots
+        order by video_id, snapshot_timestamp desc
+      ), recent as (
+        select
+          tv.video_id,
+          tv.create_time,
+          tv.duration,
+          coalesce(ls.view_count, 0) as views,
+          coalesce(ls.like_count, 0) as likes,
+          coalesce(ls.comment_count, 0) as comments,
+          coalesce(ls.share_count, 0) as shares,
+          coalesce(ls.like_count, 0) + coalesce(ls.comment_count, 0) + coalesce(ls.share_count, 0) as engagement
+        from outlaw_data.tiktok_videos tv
+        left join latest_snapshots ls on ls.video_id = tv.video_id
+        where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+          and tv.create_time >= now() - interval '30 days'
+      )
+      select
+        count(*) as posts_30d,
+        avg(views) as avg_views,
+        avg(engagement) as avg_engagement,
+        avg(duration) as avg_duration,
+        sum(shares) as total_shares,
+        max(views) as best_views
+      from recent
+    `;
+
+    const tiktokAccountSql = `
+      select follower_count, following_count, likes_count, video_count, is_verified
+      from outlaw_data.tiktok_accounts
+      where open_id = '${BIG_SKY_IDS.tiktok}'
+      order by last_synced_at desc
+      limit 1
     `;
 
     const tiktokTopPostsSql = `
@@ -219,23 +562,47 @@ export async function GET() {
       left join latest_snapshots ls on ls.video_id = tv.video_id
       where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
       order by engagement_score desc, views desc, create_time desc
-      limit 3
+      limit 5
     `;
 
-    const [trendRows, facebookRows, instagramRows, tiktokRows] =
-      await Promise.all([
-        runQuery<TrendRow>(trendSql),
-        runQuery<PostRow>(facebookTopPostsSql),
-        runQuery<PostRow>(instagramTopPostsSql),
-        runQuery<PostRow>(tiktokTopPostsSql),
-      ]);
+    const [
+      followerTrendRows,
+      facebookPerformanceRows,
+      facebookRecentRows,
+      facebookReactionRows,
+      facebookTopPostRows,
+      instagramPerformanceRows,
+      instagramRecentRows,
+      instagramMixRows,
+      instagramDemographicRows,
+      instagramTopPostRows,
+      tiktokPerformanceRows,
+      tiktokRecentRows,
+      tiktokAccountRows,
+      tiktokTopPostRows,
+    ] = await Promise.all([
+      runQuery<TrendRow>(followerTrendSql),
+      runQuery<DailyMetricRow>(facebookPerformanceSql),
+      runQuery<SummaryRow>(facebookRecentSql),
+      runQuery<ReactionRow>(facebookReactionSql),
+      runQuery<TopPostRow>(facebookTopPostsSql),
+      runQuery<DailyMetricRow>(instagramPerformanceSql),
+      runQuery<SummaryRow>(instagramRecentSql),
+      runQuery<InstagramMixRow>(instagramMixSql),
+      runQuery<DemographicRow>(instagramDemographicsSql),
+      runQuery<TopPostRow>(instagramTopPostsSql),
+      runQuery<DailyMetricRow>(tiktokPerformanceSql),
+      runQuery<SummaryRow>(tiktokRecentSql),
+      runQuery<TikTokAccountRow>(tiktokAccountSql),
+      runQuery<TopPostRow>(tiktokTopPostsSql),
+    ]);
 
     const trendMap = new Map<
       string,
       { day: string; facebook: number | null; instagram: number | null; tiktok: number | null }
     >();
 
-    for (const row of trendRows) {
+    for (const row of followerTrendRows) {
       const existing = trendMap.get(row.day) ?? {
         day: row.day,
         facebook: null,
@@ -251,52 +618,323 @@ export async function GET() {
       a.day.localeCompare(b.day)
     );
 
-    const summaries = (Object.keys(PLATFORM_META) as Platform[]).map(
-      (platform) => {
-        const points = trendRows
+    const followersByPlatform = (Object.keys(PLATFORM_META) as Platform[]).reduce(
+      (acc, platform) => {
+        acc[platform] = followerTrendRows
           .filter((row) => row.platform === platform)
-          .sort((a, b) => a.day.localeCompare(b.day));
-        const firstFollowers = points.length > 0 ? toNumber(points[0].followers) : 0;
-        const latestFollowers =
-          points.length > 0 ? toNumber(points[points.length - 1].followers) : 0;
-
-        return {
-          platform,
-          label: PLATFORM_META[platform].label,
-          handle: PLATFORM_META[platform].handle,
-          metricLabel: PLATFORM_META[platform].metricLabel,
-          latestFollowers,
-          deltaFollowers: latestFollowers - firstFollowers,
-          points: points.length,
-        };
-      }
+          .sort((a, b) => a.day.localeCompare(b.day))
+          .map((row) => ({ day: row.day, value: toNumber(row.followers) }));
+        return acc;
+      },
+      {} as Record<Platform, DataPoint[]>
     );
 
-    const normalizePost = (row: PostRow) => ({
-      id: row.id,
-      createdAt: row.created_time ?? row.create_time ?? null,
-      title: row.title ?? "Untitled post",
-      imageUrl: row.image_url,
-      permalink: row.permalink,
-      likes: toNumber(row.likes),
-      comments: toNumber(row.comments),
-      shares: toNumber(row.shares),
-      saves: toNumber(row.saves),
-      views: toNumber(row.views),
-      impressions: toNumber(row.impressions),
-      engagementScore: toNumber(row.engagement_score),
+    const facebookPerformance = buildDataPoints(facebookPerformanceRows, "reach");
+    const facebookVideoViews = buildDataPoints(facebookPerformanceRows, "video_views");
+    const facebookPageViews = buildDataPoints(facebookPerformanceRows, "page_views");
+    const facebookReactions = buildDataPoints(facebookPerformanceRows, "reactions");
+
+    const instagramPerformance = buildDataPoints(instagramPerformanceRows, "reach");
+
+    const tiktokPerformance = buildDataPoints(tiktokPerformanceRows, "daily_views");
+    const tiktokLikesTrend = buildDataPoints(tiktokPerformanceRows, "daily_likes");
+    const tiktokSharesTrend = buildDataPoints(tiktokPerformanceRows, "daily_shares");
+
+    const facebookLatestPerformance = getLatestPoint(facebookPerformance);
+    const instagramLatestPerformance = getLatestPoint(instagramPerformance);
+    const tiktokLatestPerformance = getLatestPoint(tiktokPerformance);
+
+    const facebookRecent = facebookRecentRows[0] ?? {};
+    const instagramRecent = instagramRecentRows[0] ?? {};
+    const tiktokRecent = tiktokRecentRows[0] ?? {};
+    const tiktokAccount = tiktokAccountRows[0] ?? {
+      follower_count: 0,
+      following_count: 0,
+      likes_count: 0,
+      video_count: 0,
+      is_verified: false,
+    };
+
+    const demographicsByType = instagramDemographicRows.reduce(
+      (acc, row) => {
+        acc[row.breakdown_type] = acc[row.breakdown_type] ?? [];
+        acc[row.breakdown_type].push(row);
+        return acc;
+      },
+      {} as Record<string, DemographicRow[]>
+    );
+
+    const summaries = (Object.keys(PLATFORM_META) as Platform[]).map((platform) => {
+      const followersTrend = followersByPlatform[platform];
+      const latestFollowers = getLatestPoint(followersTrend)?.value ?? 0;
+      const firstFollowers = followersTrend[0]?.value ?? 0;
+
+      const performanceTrend =
+        platform === "facebook"
+          ? facebookPerformance
+          : platform === "instagram"
+            ? instagramPerformance
+            : tiktokPerformance;
+
+      return {
+        platform,
+        label: PLATFORM_META[platform].label,
+        handle: PLATFORM_META[platform].handle,
+        metricLabel: PLATFORM_META[platform].metricLabel,
+        latestFollowers,
+        deltaFollowers: latestFollowers - firstFollowers,
+        points: followersTrend.length,
+        performanceLabel: PLATFORM_META[platform].performanceLabel,
+        performanceNote: PLATFORM_META[platform].performanceNote,
+        performanceTrend,
+        performanceLatest: getLatestPoint(performanceTrend)?.value ?? 0,
+        performanceDelta: getPointDelta(performanceTrend),
+      };
     });
+
+    const platforms = {
+      facebook: {
+        platform: "facebook" as const,
+        label: PLATFORM_META.facebook.label,
+        handle: PLATFORM_META.facebook.handle,
+        metricLabel: PLATFORM_META.facebook.metricLabel,
+        performanceLabel: PLATFORM_META.facebook.performanceLabel,
+        performanceNote: PLATFORM_META.facebook.performanceNote,
+        followersTrend: followersByPlatform.facebook,
+        performanceTrend: facebookPerformance,
+        secondaryLabel: "Daily reactions",
+        secondaryTrend: facebookReactions,
+        stats: [
+          {
+            label: "Followers",
+            value: getLatestPoint(followersByPlatform.facebook)?.value ?? 0,
+            note: `${followersByPlatform.facebook.length} tracked days`,
+          },
+          {
+            label: "Latest reach",
+            value: facebookLatestPerformance?.value ?? 0,
+            note: "page impressions unique",
+          },
+          {
+            label: "Latest video views",
+            value: getLatestPoint(facebookVideoViews)?.value ?? 0,
+            note: "page-level video views",
+          },
+          {
+            label: "Latest page views",
+            value: getLatestPoint(facebookPageViews)?.value ?? 0,
+            note: "page_views_total",
+          },
+        ],
+        groups: [
+          {
+            title: "Recent post performance",
+            note: "Latest metrics across the last 30 days of Facebook posts.",
+            items: [
+              { label: "Posts in last 30 days", value: toNumber(facebookRecent.posts_30d) },
+              { label: "Avg engagements per post", value: toNumber(facebookRecent.avg_engagement) },
+              { label: "Avg impressions per post", value: toNumber(facebookRecent.avg_impressions) },
+              { label: "Total shares", value: toNumber(facebookRecent.total_shares) },
+            ],
+          },
+          {
+            title: "Current reaction mix",
+            note: "Latest daily page reaction totals.",
+            items: facebookReactionRows.map((row) => ({
+              label: row.reaction,
+              value: toNumber(row.value),
+            })),
+          },
+          {
+            title: "Reach highlights",
+            items: [
+              {
+                label: "Best reach day",
+                value: getBestPoint(facebookPerformance)?.value ?? 0,
+                note: getBestPoint(facebookPerformance)?.day,
+              },
+              {
+                label: "Day-over-day reach",
+                value: getPointDelta(facebookPerformance),
+                note: "latest vs previous day",
+              },
+              {
+                label: "Best reaction day",
+                value: getBestPoint(facebookReactions)?.value ?? 0,
+                note: getBestPoint(facebookReactions)?.day,
+              },
+            ],
+          },
+        ],
+        topPosts: facebookTopPostRows.map(normalizePost),
+      },
+      instagram: {
+        platform: "instagram" as const,
+        label: PLATFORM_META.instagram.label,
+        handle: PLATFORM_META.instagram.handle,
+        metricLabel: PLATFORM_META.instagram.metricLabel,
+        performanceLabel: PLATFORM_META.instagram.performanceLabel,
+        performanceNote: PLATFORM_META.instagram.performanceNote,
+        followersTrend: followersByPlatform.instagram,
+        performanceTrend: instagramPerformance,
+        secondaryLabel: "Follower trend",
+        secondaryTrend: followersByPlatform.instagram,
+        stats: [
+          {
+            label: "Followers",
+            value: getLatestPoint(followersByPlatform.instagram)?.value ?? 0,
+            note: `${followersByPlatform.instagram.length} tracked days`,
+          },
+          {
+            label: "Latest reach",
+            value: instagramLatestPerformance?.value ?? 0,
+            note: "account reach",
+          },
+          {
+            label: "Tracked posts",
+            value: instagramMixRows.reduce((sum, row) => sum + toNumber(row.posts), 0),
+            note: "media available in dataset",
+          },
+          {
+            label: "Best reach day",
+            value: getBestPoint(instagramPerformance)?.value ?? 0,
+            note: getBestPoint(instagramPerformance)?.day,
+          },
+        ],
+        groups: [
+          {
+            title: "Recent post performance",
+            note: "Last 30 days of tracked Instagram posts.",
+            items: [
+              { label: "Posts in last 30 days", value: toNumber(instagramRecent.posts_30d) },
+              { label: "Avg engagements per post", value: toNumber(instagramRecent.avg_engagement) },
+              { label: "Avg shares per post", value: toNumber(instagramRecent.avg_shares) },
+              { label: "Avg saves per post", value: toNumber(instagramRecent.avg_saves) },
+            ],
+          },
+          {
+            title: "Content mix",
+            note: "Average lifetime engagement by media type.",
+            items: instagramMixRows.map((row) => ({
+              label: row.media_type,
+              value: toNumber(row.posts),
+              note: `${Math.round(toNumber(row.avg_engagement))} avg engagements`,
+            })),
+          },
+          {
+            title: "Top cities",
+            note: "Latest audience demographic snapshot.",
+            items: (demographicsByType.city ?? []).slice(0, 5).map((row) => ({
+              label: row.key,
+              value: toNumber(row.value),
+            })),
+          },
+          {
+            title: "Audience profile",
+            items: [
+              ...(demographicsByType.age ?? []).slice(0, 4).map((row) => ({
+                label: `Age ${row.key}`,
+                value: toNumber(row.value),
+              })),
+              ...(demographicsByType.country ?? []).slice(0, 2).map((row) => ({
+                label: `Country ${row.key}`,
+                value: toNumber(row.value),
+              })),
+              ...(demographicsByType.gender ?? []).slice(0, 2).map((row) => ({
+                label: `Gender ${row.key}`,
+                value: toNumber(row.value),
+              })),
+            ],
+          },
+        ],
+        topPosts: instagramTopPostRows.map(normalizePost),
+      },
+      tiktok: {
+        platform: "tiktok" as const,
+        label: PLATFORM_META.tiktok.label,
+        handle: PLATFORM_META.tiktok.handle,
+        metricLabel: PLATFORM_META.tiktok.metricLabel,
+        performanceLabel: PLATFORM_META.tiktok.performanceLabel,
+        performanceNote: PLATFORM_META.tiktok.performanceNote,
+        followersTrend: followersByPlatform.tiktok,
+        performanceTrend: tiktokPerformance,
+        secondaryLabel: "Daily likes",
+        secondaryTrend: tiktokLikesTrend,
+        stats: [
+          {
+            label: "Followers",
+            value: toNumber(tiktokAccount.follower_count),
+            note: followersByPlatform.tiktok.length > 1 ? `${followersByPlatform.tiktok.length} tracked days` : "Latest synced follower snapshot",
+          },
+          {
+            label: "Latest daily views",
+            value: tiktokLatestPerformance?.value ?? 0,
+            note: "from snapshot deltas",
+          },
+          {
+            label: "Account likes",
+            value: toNumber(tiktokAccount.likes_count),
+            note: "lifetime likes",
+          },
+          {
+            label: "Videos tracked",
+            value: toNumber(tiktokAccount.video_count),
+            note: tiktokAccount.is_verified ? "verified account" : "unverified account",
+          },
+        ],
+        groups: [
+          {
+            title: "Recent video performance",
+            note: "Last 30 days of TikTok posts.",
+            items: [
+              { label: "Posts in last 30 days", value: toNumber(tiktokRecent.posts_30d) },
+              { label: "Avg views per post", value: toNumber(tiktokRecent.avg_views) },
+              { label: "Avg engagements per post", value: toNumber(tiktokRecent.avg_engagement) },
+              { label: "Total shares", value: toNumber(tiktokRecent.total_shares) },
+            ],
+          },
+          {
+            title: "Current pace",
+            note: "Daily deltas from the latest video snapshot history.",
+            items: [
+              { label: "Views today", value: tiktokLatestPerformance?.value ?? 0 },
+              { label: "Likes today", value: getLatestPoint(tiktokLikesTrend)?.value ?? 0 },
+              { label: "Shares today", value: getLatestPoint(tiktokSharesTrend)?.value ?? 0 },
+              {
+                label: "Avg duration (sec)",
+                value: Math.round(toNumber(tiktokRecent.avg_duration)),
+              },
+            ],
+          },
+          {
+            title: "View highlights",
+            items: [
+              {
+                label: "Best daily views",
+                value: getBestPoint(tiktokPerformance)?.value ?? 0,
+                note: getBestPoint(tiktokPerformance)?.day,
+              },
+              {
+                label: "Best video views (30d)",
+                value: toNumber(tiktokRecent.best_views),
+              },
+              {
+                label: "Following",
+                value: toNumber(tiktokAccount.following_count),
+              },
+            ],
+          },
+        ],
+        topPosts: tiktokTopPostRows.map(normalizePost),
+      },
+    };
 
     return NextResponse.json(
       {
         generatedAt: new Date().toISOString(),
         trend,
         summaries,
-        topPosts: {
-          facebook: facebookRows.map(normalizePost),
-          instagram: instagramRows.map(normalizePost),
-          tiktok: tiktokRows.map(normalizePost),
-        },
+        platforms,
       },
       {
         headers: {
