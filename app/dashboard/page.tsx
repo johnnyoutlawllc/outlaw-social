@@ -778,17 +778,35 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
 
   const calendarMap = useMemo(() => {
     const map: { [d: string]: { count: number; value: number; platforms: Platform[] } } = {};
-    const engField = (metric === "likes" || metric === "comments" || metric === "shares") ? metric : null;
     const cut = days < 365 ? getCutoff(days) : "0000-00-00";
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
-      Object.entries(drivers).forEach(([day, posts]) => {
-        if (day < cut) return;
-        if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
-        map[day].count += posts.length;
-        map[day].value += engField ? posts.reduce((s, post) => s + (post[engField] as number), 0) : posts.length;
-        if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
-      });
+      if (metric === "likes" || metric === "comments" || metric === "shares") {
+        // Sum engagement metric per day from activity drivers
+        const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+        Object.entries(drivers).forEach(([day, posts]) => {
+          if (day < cut) return;
+          if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
+          map[day].count += posts.length;
+          map[day].value += posts.reduce((s, post) => s + (post[metric] as number), 0);
+          if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
+        });
+      } else if (metric === "reach") {
+        // Use performanceTrend (daily reach/views) for each platform
+        (data.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
+          if (day < cut) return;
+          if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
+          map[day].value += value;
+          if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
+        });
+      } else {
+        // followers: use followersTrend delta (show absolute value)
+        (data.platforms[p].followersTrend ?? []).forEach(({ day, value }) => {
+          if (day < cut) return;
+          if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
+          map[day].value += value;
+          if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
+        });
+      }
     });
     return map;
   }, [data, metric, days]);
@@ -912,7 +930,17 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
               {formatCompactNumber(calendarMap[calHov.date].value)} total {metric}
             </div>
           )}
-          {calendarMap[calHov.date] && !(metric === "likes" || metric === "comments" || metric === "shares") && (
+          {calendarMap[calHov.date] && metric === "reach" && (
+            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
+              {formatCompactNumber(calendarMap[calHov.date].value)} reach
+            </div>
+          )}
+          {calendarMap[calHov.date] && metric === "followers" && (
+            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
+              {formatCompactNumber(calendarMap[calHov.date].value)} followers
+            </div>
+          )}
+          {calendarMap[calHov.date] && !(metric === "likes" || metric === "comments" || metric === "shares" || metric === "reach" || metric === "followers") && (
             <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
               {calendarMap[calHov.date].count} post{calendarMap[calHov.date].count !== 1 ? "s" : ""}
             </div>
