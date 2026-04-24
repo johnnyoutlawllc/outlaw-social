@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   Legend,
@@ -109,6 +107,7 @@ type PlatformDetails = {
   contentMix?: ContentMixDatum[];
   topCities?: BreakdownDatum[];
   audience?: AudienceBreakdown;
+  activityDrivers?: Record<string, TopPost[]>;
 };
 
 type DashboardPayload = {
@@ -155,6 +154,13 @@ const TEXAS_CITY_COORDS: Record<string, { lat: number; lng: number }> = {
   "san antonio": { lat: 29.4241, lng: -98.4936 },
   terrell: { lat: 32.7357, lng: -96.2753 },
   wylie: { lat: 33.0151, lng: -96.5389 },
+};
+
+const SOUTH_MAP_BOUNDS = {
+  minLng: -103,
+  maxLng: -84,
+  minLat: 24,
+  maxLat: 38,
 };
 
 function formatCompactNumber(value: number) {
@@ -253,6 +259,16 @@ function getCityCoordinates(label: string) {
   return TEXAS_CITY_COORDS[city] ?? null;
 }
 
+function buildMapPosition({ lat, lng }: { lat: number; lng: number }) {
+  const x = ((lng - SOUTH_MAP_BOUNDS.minLng) / (SOUTH_MAP_BOUNDS.maxLng - SOUTH_MAP_BOUNDS.minLng)) * 100;
+  const y = (1 - (lat - SOUTH_MAP_BOUNDS.minLat) / (SOUTH_MAP_BOUNDS.maxLat - SOUTH_MAP_BOUNDS.minLat)) * 100;
+
+  return {
+    x: `${x}%`,
+    y: `${y}%`,
+  };
+}
+
 function buildPercentageRows(items: BreakdownDatum[]) {
   const total = items.reduce((sum, item) => sum + item.value, 0);
 
@@ -263,6 +279,94 @@ function buildPercentageRows(items: BreakdownDatum[]) {
       percent: total > 0 ? (item.value / total) * 100 : 0,
     }))
     .sort((a, b) => b.percent - a.percent);
+}
+
+function ActivityTooltip({
+  active,
+  payload,
+  label,
+  driversByDay,
+  valueLabel,
+}: {
+  active?: boolean;
+  payload?: Array<{ value?: number | string }>;
+  label?: string | number;
+  driversByDay?: Record<string, TopPost[]>;
+  valueLabel: string;
+}) {
+  if (!active || !payload?.length || label == null) {
+    return null;
+  }
+
+  const day = String(label);
+  const value = Number(payload[0]?.value ?? 0);
+  const drivers = driversByDay?.[day] ?? [];
+
+  return (
+    <div
+      style={{
+        width: 320,
+        background: "rgba(12,12,12,0.96)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: 16,
+        boxShadow: "0 14px 40px rgba(0,0,0,0.38)",
+        padding: 16,
+      }}
+    >
+      <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>{formatShortDate(day)}</div>
+      <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 12 }}>
+        {valueLabel}: {formatCompactNumber(value)}
+      </div>
+
+      <div
+        style={{
+          fontSize: 11,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "var(--text-muted)",
+          marginBottom: 8,
+        }}
+      >
+        Posts driving activity
+      </div>
+
+      {drivers.length > 0 ? (
+        <div style={{ display: "grid", gap: 10 }}>
+          {drivers.slice(0, 5).map((post) => (
+            <div
+              key={`${day}-${post.id}`}
+              style={{
+                paddingTop: 10,
+                borderTop: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  lineHeight: 1.35,
+                  marginBottom: 4,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {post.title}
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                {formatCompactNumber(post.engagementScore)} moved / {formatCompactNumber(post.likes)} likes / {formatCompactNumber(post.comments)} comments / {formatCompactNumber(post.shares)} shares
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+          No post-level movement was captured for this day.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AxisToggle({
@@ -528,12 +632,16 @@ function TrendCard({
   series,
   color,
   allowZeroToggle = false,
+  driversByDay,
+  valueLabel,
 }: {
   title: string;
   note?: string;
   series: DataPoint[];
   color: string;
   allowZeroToggle?: boolean;
+  driversByDay?: Record<string, TopPost[]>;
+  valueLabel?: string;
 }) {
   const [includeZero, setIncludeZero] = useState(true);
   const yDomain = useMemo(
@@ -569,6 +677,19 @@ function TrendCard({
             width={64}
           />
           <Tooltip
+            content={
+              driversByDay
+                ? ({ active, payload, label }) => (
+                    <ActivityTooltip
+                      active={active}
+                      payload={payload as Array<{ value?: number | string }>}
+                      label={label}
+                      driversByDay={driversByDay}
+                      valueLabel={valueLabel ?? title}
+                    />
+                  )
+                : undefined
+            }
             contentStyle={{
               background: "var(--bg-card)",
               border: "1px solid var(--border)",
@@ -863,7 +984,7 @@ function InstagramContentMixCard({ data }: { data: ContentMixDatum[] }) {
               <div>
                 <div style={{ fontWeight: 700 }}>{normalizeMediaType(item.label)}</div>
                 <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                  {formatCompactNumber(item.avgEngagement)} avg engagements · {formatCompactNumber(item.avgSaves)} saves
+                  {formatCompactNumber(item.avgEngagement)} avg engagements / {formatCompactNumber(item.avgSaves)} saves
                 </div>
               </div>
               <div style={{ fontWeight: 700, color: "var(--accent)" }}>{formatCompactNumber(item.value)}</div>
@@ -875,98 +996,188 @@ function InstagramContentMixCard({ data }: { data: ContentMixDatum[] }) {
   );
 }
 
-function TexasAudienceMap({ cities }: { cities: BreakdownDatum[] }) {
+function DistributionList({
+  title,
+  items,
+  color,
+  maxItems,
+}: {
+  title: string;
+  items: BreakdownDatum[];
+  color: string;
+  maxItems?: number;
+}) {
+  const rows = buildPercentageRows(items);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div
+        style={{
+          fontSize: 13,
+          fontWeight: 700,
+          color: "var(--text-muted)",
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+        }}
+      >
+        {title}
+      </div>
+      {rows.slice(0, maxItems ?? rows.length).map((row) => (
+        <div
+          key={`${title}-${row.label}`}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 10,
+            alignItems: "center",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {row.label}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                width: "100%",
+                height: 10,
+                borderRadius: 999,
+                background: "rgba(255,255,255,0.05)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.max(row.percent, 1)}%`,
+                  height: "100%",
+                  borderRadius: 999,
+                  background: color,
+                }}
+              />
+            </div>
+          </div>
+          <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 13 }}>{formatPercent(row.percent)}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AudienceMapPanel({ cities }: { cities: BreakdownDatum[] }) {
   const mappedCities = cities
     .map((city) => {
       const coords = getCityCoordinates(city.label);
       if (!coords) return null;
 
-      const x = ((coords.lng + 106.7) / 13.2) * 320;
-      const y = (1 - (coords.lat - 25.8) / 10.7) * 240;
-
       return {
         ...city,
-        x,
-        y,
+        ...buildMapPosition(coords),
       };
     })
-    .filter((city): city is BreakdownDatum & { x: number; y: number } => city !== null);
+    .filter((city): city is BreakdownDatum & { x: string; y: string } => city !== null);
 
-  const maxValue = Math.max(...cities.map((city) => city.value), 1);
+  const maxValue = Math.max(...mappedCities.map((city) => city.value), 1);
+  const src = "https://www.openstreetmap.org/export/embed.html?bbox=-103%2C24%2C-84%2C38&layer=mapnik";
 
   return (
-    <svg viewBox="0 0 320 240" style={{ width: "100%", height: "100%" }} aria-label="Texas city audience map">
-      <path
-        d="M57 26 L116 29 L126 42 L158 46 L214 46 L219 94 L253 109 L241 143 L255 169 L233 201 L198 190 L156 199 L108 183 L92 169 L61 166 L49 130 L54 108 L39 81 Z"
-        fill="rgba(255,255,255,0.03)"
-        stroke="rgba(255,255,255,0.1)"
-        strokeWidth="2"
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        minHeight: 320,
+        borderRadius: 18,
+        overflow: "hidden",
+        border: "1px solid rgba(255,255,255,0.06)",
+        background: "#0f0f0f",
+      }}
+    >
+      <iframe
+        title="Instagram audience location map"
+        src={src}
+        loading="lazy"
+        style={{
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          border: "0",
+          pointerEvents: "none",
+          filter: "grayscale(0.12) brightness(0.68) contrast(1.02)",
+        }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: "linear-gradient(180deg, rgba(10,10,10,0.10), rgba(10,10,10,0.24))",
+        }}
       />
       {mappedCities.map((city) => {
-        const radius = 5 + (city.value / maxValue) * 12;
+        const radius = 18 + (city.value / maxValue) * 34;
 
         return (
-          <g key={city.label}>
-            <circle cx={city.x} cy={city.y} r={radius + 4} fill="rgba(255,107,53,0.12)" />
-            <circle cx={city.x} cy={city.y} r={radius} fill="rgba(255,107,53,0.85)" stroke="#fff" strokeWidth="1.5" />
-          </g>
+          <div
+            key={city.label}
+            title={`${city.label}: ${formatCompactNumber(city.value)}`}
+            style={{
+              position: "absolute",
+              left: city.x,
+              top: city.y,
+              transform: "translate(-50%, -50%)",
+            }}
+          >
+            <div
+              style={{
+                width: radius,
+                height: radius,
+                borderRadius: "999px",
+                background: "rgba(255,107,53,0.82)",
+                border: "2px solid rgba(255,255,255,0.85)",
+                boxShadow: "0 0 0 10px rgba(255,107,53,0.14)",
+              }}
+            />
+          </div>
         );
       })}
-    </svg>
+    </div>
   );
 }
 
-function InstagramCitiesCard({ cities }: { cities: BreakdownDatum[] }) {
-  if (cities.length === 0) {
+function InstagramLocationCard({
+  cities,
+  countries,
+}: {
+  cities: BreakdownDatum[];
+  countries: BreakdownDatum[];
+}) {
+  if (cities.length === 0 && countries.length === 0) {
     return null;
   }
 
-  const chartData = cities.slice(0, 6).map((city) => ({
-    ...city,
-    shortLabel: city.label.replace(", Texas", ""),
-  }));
-
   return (
     <div className="card" style={{ padding: 20 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Top cities</h3>
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Latest demographic snapshot, mapped into Texas where we have city coordinates.</p>
+      <div style={{ marginBottom: 16 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Instagram audience location</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
+          Country and city distribution with a regional map footprint for the current Instagram audience snapshot.
+        </p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 1fr) minmax(260px, 1.2fr)", gap: 18, alignItems: "center" }}>
-        <div style={{ width: "100%", height: 240 }}>
-          <TexasAudienceMap cities={cities} />
-        </div>
-
-        <div style={{ width: "100%", height: 240 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
-              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
-              <XAxis
-                type="number"
-                stroke="var(--text-muted)"
-                tick={{ fontSize: 12 }}
-                tickFormatter={(value: number) => formatCompactNumber(value)}
-              />
-              <YAxis
-                type="category"
-                dataKey="shortLabel"
-                stroke="var(--text-muted)"
-                tick={{ fontSize: 12 }}
-                width={96}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--bg-card)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 10,
-                }}
-                formatter={(value) => formatCompactNumber(Number(value ?? 0))}
-              />
-              <Bar dataKey="value" radius={[0, 8, 8, 0]} fill="var(--accent)" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(180px, 0.8fr) minmax(220px, 1fr) minmax(320px, 1.15fr)",
+          gap: 18,
+          alignItems: "start",
+        }}
+      >
+        <DistributionList title="Country distribution" items={countries} color="#f59e0b" maxItems={8} />
+        <DistributionList title="City distribution" items={cities} color="#ff6b35" maxItems={12} />
+        <AudienceMapPanel cities={cities.slice(0, 12)} />
       </div>
     </div>
   );
@@ -1032,7 +1243,6 @@ function InstagramAudienceCard({ audience }: { audience: AudienceBreakdown }) {
 
       <div style={{ display: "grid", gap: 18 }}>
         <PercentageBarList title="Age" items={audience.age} color="#ff6b35" />
-        <PercentageBarList title="Country" items={audience.country} color="#f59e0b" />
         <PercentageBarList title="Gender" items={audience.gender} color="#ec4899" />
       </div>
     </div>
@@ -1041,16 +1251,18 @@ function InstagramAudienceCard({ audience }: { audience: AudienceBreakdown }) {
 
 function InstagramInsights({ detail }: { detail: PlatformDetails }) {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
-        gap: 16,
-        marginBottom: 20,
-      }}
-    >
-      <InstagramContentMixCard data={detail.contentMix ?? []} />
-      <InstagramCitiesCard cities={detail.topCities ?? []} />
+    <div style={{ display: "grid", gap: 16, marginBottom: 20 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(320px, 360px) minmax(0, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <InstagramContentMixCard data={detail.contentMix ?? []} />
+        <InstagramLocationCard cities={detail.topCities ?? []} countries={detail.audience?.country ?? []} />
+      </div>
       {detail.audience ? <InstagramAudienceCard audience={detail.audience} /> : null}
     </div>
   );
@@ -1098,6 +1310,8 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
           note={detail.performanceNote}
           series={detail.performanceTrend}
           color={color}
+          driversByDay={detail.activityDrivers}
+          valueLabel={detail.performanceLabel}
         />
       </div>
 

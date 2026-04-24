@@ -20,6 +20,7 @@ type DailyMetricRow = {
 
 type TopPostRow = {
   id: string;
+  activity_day?: string | null;
   created_time?: string;
   create_time?: string;
   title: string | null;
@@ -184,6 +185,33 @@ function normalizePost(row: TopPostRow) {
     impressions: toNumber(row.impressions),
     engagementScore: toNumber(row.engagement_score),
   };
+}
+
+function buildActivityDrivers(rows: TopPostRow[]) {
+  const grouped = new Map<string, ReturnType<typeof normalizePost>[]>();
+
+  for (const row of rows) {
+    const day = row.activity_day ?? row.created_time?.slice(0, 10) ?? row.create_time?.slice(0, 10);
+    if (!day) continue;
+
+    const existing = grouped.get(day) ?? [];
+    existing.push(normalizePost(row));
+    grouped.set(day, existing);
+  }
+
+  return Object.fromEntries(
+    Array.from(grouped.entries()).map(([day, posts]) => [
+      day,
+      posts
+        .sort((a, b) => {
+          if (b.engagementScore !== a.engagementScore) {
+            return b.engagementScore - a.engagementScore;
+          }
+          return (b.createdAt ?? "").localeCompare(a.createdAt ?? "");
+        })
+        .slice(0, 5),
+    ])
+  );
 }
 
 export async function GET() {
@@ -453,6 +481,58 @@ export async function GET() {
       limit 5
     `;
 
+    const instagramActivityDriversSql = `
+      with snapshots as (
+        select
+          imi.media_id,
+          date(imi.date) as day,
+          imi.metric,
+          max(imi.value) as value
+        from outlaw_data.instagram_media_insights imi
+        join outlaw_data.instagram_media im on im.media_id = imi.media_id
+        where im.account_id = '${BIG_SKY_IDS.instagram}'
+          and imi.metric in ('likes', 'comments', 'saved', 'shares')
+        group by 1, 2, 3
+      ), pivoted as (
+        select
+          media_id,
+          day,
+          max(case when metric = 'likes' then value else 0 end) as likes,
+          max(case when metric = 'comments' then value else 0 end) as comments,
+          max(case when metric = 'saved' then value else 0 end) as saves,
+          max(case when metric = 'shares' then value else 0 end) as shares
+        from snapshots
+        group by 1, 2
+      ), deltas as (
+        select
+          media_id,
+          day,
+          greatest(likes - lag(likes) over(partition by media_id order by day), 0) as daily_likes,
+          greatest(comments - lag(comments) over(partition by media_id order by day), 0) as daily_comments,
+          greatest(saves - lag(saves) over(partition by media_id order by day), 0) as daily_saves,
+          greatest(shares - lag(shares) over(partition by media_id order by day), 0) as daily_shares
+        from pivoted
+      )
+      select
+        d.day as activity_day,
+        im.media_id as id,
+        im.timestamp as created_time,
+        left(coalesce(im.caption, ''), 160) as title,
+        coalesce(im.thumbnail_url, im.media_url) as image_url,
+        im.media_type,
+        im.permalink,
+        coalesce(d.daily_likes, 0) as likes,
+        coalesce(d.daily_comments, 0) as comments,
+        coalesce(d.daily_saves, 0) as saves,
+        coalesce(d.daily_shares, 0) as shares,
+        coalesce(d.daily_likes, 0) + coalesce(d.daily_comments, 0) + coalesce(d.daily_saves, 0) + coalesce(d.daily_shares, 0) as engagement_score
+      from deltas d
+      join outlaw_data.instagram_media im on im.media_id = d.media_id
+      where d.day >= current_date - interval '180 days'
+        and (coalesce(d.daily_likes, 0) + coalesce(d.daily_comments, 0) + coalesce(d.daily_saves, 0) + coalesce(d.daily_shares, 0)) > 0
+      order by d.day desc, engagement_score desc, created_time desc
+    `;
+
     const tiktokPerformanceSql = `
       with latest_per_video_day as (
         select
@@ -581,6 +661,7 @@ export async function GET() {
       instagramMixRows,
       instagramDemographicRows,
       instagramTopPostRows,
+      instagramActivityDriverRows,
       tiktokPerformanceRows,
       tiktokRecentRows,
       tiktokAccountRows,
@@ -596,6 +677,7 @@ export async function GET() {
       runQuery<InstagramMixRow>(instagramMixSql),
       runQuery<DemographicRow>(instagramDemographicsSql),
       runQuery<TopPostRow>(instagramTopPostsSql),
+      runQuery<TopPostRow>(instagramActivityDriversSql),
       runQuery<DailyMetricRow>(tiktokPerformanceSql),
       runQuery<SummaryRow>(tiktokRecentSql),
       runQuery<TikTokAccountRow>(tiktokAccountSql),
@@ -668,6 +750,8 @@ export async function GET() {
       },
       {} as Record<string, DemographicRow[]>
     );
+
+    const instagramActivityDrivers = buildActivityDrivers(instagramActivityDriverRows);
 
     const summaries = (Object.keys(PLATFORM_META) as Platform[]).map((platform) => {
       const followersTrend = followersByPlatform[platform];
@@ -813,7 +897,7 @@ export async function GET() {
           avgShares: toNumber(row.avg_shares),
           avgSaves: toNumber(row.avg_saves),
         })),
-        topCities: (demographicsByType.city ?? []).slice(0, 8).map((row) => ({
+        topCities: (demographicsByType.city ?? []).slice(0, 12).map((row) => ({
           label: row.key,
           value: toNumber(row.value),
         })),
@@ -877,6 +961,7 @@ export async function GET() {
             ],
           },
         ],
+        activityDrivers: instagramActivityDrivers,
         topPosts: instagramTopPostRows.map(normalizePost),
       },
       tiktok: {
