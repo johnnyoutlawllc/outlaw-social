@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Cell,
   Legend,
@@ -704,6 +706,399 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
           ))}
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ---- Performance Trends Grid ----
+function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
+  return (
+    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Performance Trends by Platform</h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 18 }}>
+        Daily reach / views over the last 30 days per platform.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+        {data.summaries.map((summary) => {
+          const color = PLATFORM_COLORS[summary.platform];
+          const trend = summary.performanceTrend.slice(-30);
+          return (
+            <div
+              key={summary.platform}
+              style={{ padding: 16, background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid var(--border)" }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
+                  <span style={{ fontWeight: 700, fontSize: 14 }}>{summary.label}</span>
+                </div>
+                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{summary.performanceLabel}</span>
+              </div>
+              <ResponsiveContainer width="100%" height={110}>
+                <BarChart data={trend} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="20%">
+                  <XAxis dataKey="day" hide />
+                  <YAxis hide />
+                  <Tooltip
+                    contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                    labelFormatter={(l) => formatShortDate(String(l))}
+                    formatter={(v: unknown) => [formatCompactNumber(Number(v)), summary.performanceLabel]}
+                  />
+                  <Bar dataKey="value" fill={color} radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12 }}>
+                <span style={{ color: "var(--text-muted)" }}>
+                  Latest: <strong style={{ color: "#fff" }}>{formatCompactNumber(summary.performanceLatest)}</strong>
+                </span>
+                <span style={{ color: summary.performanceDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
+                  {formatDelta(summary.performanceDelta)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---- KPIs by Platform ----
+function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
+  const kpiRows = useMemo(() => {
+    return (["Avg Likes", "Avg Comments", "Avg Shares"] as const).map((metric) => {
+      const row: Record<string, string | number> = { metric };
+      (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+        const posts = data.platforms[p].topPosts;
+        if (!posts.length) { row[p] = 0; return; }
+        const field: keyof TopPost =
+          metric === "Avg Likes" ? "likes" : metric === "Avg Comments" ? "comments" : "shares";
+        row[p] = Math.round(posts.reduce((s, post) => s + (post[field] as number), 0) / posts.length);
+      });
+      return row;
+    });
+  }, [data]);
+
+  return (
+    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>KPIs by Platform</h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 18 }}>
+        Average likes, comments, and shares per post across platforms.
+      </p>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={kpiRows} margin={{ left: 8, right: 8, top: 8, bottom: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="metric" tick={{ fontSize: 13, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} />
+          <Tooltip
+            contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}
+            formatter={(v: unknown, name: unknown) => [formatCompactNumber(Number(v)), PLATFORM_LABELS[name as Platform] ?? String(name)]}
+          />
+          <Legend formatter={(value: unknown) => PLATFORM_LABELS[value as Platform] ?? String(value)} />
+          {(["facebook", "instagram", "tiktok"] as Platform[]).map((p) => (
+            <Bar key={p} dataKey={p} fill={PLATFORM_COLORS[p]} radius={[3, 3, 0, 0]} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ---- Posting Calendar ----
+function PostingCalendarCard({ data }: { data: DashboardPayload }) {
+  const calendarMap = useMemo(() => {
+    const map: Record<string, { count: number; platforms: Platform[] }> = {};
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      const drivers = data.platforms[p].activityDrivers ?? {};
+      Object.entries(drivers).forEach(([day, posts]) => {
+        if (!map[day]) map[day] = { count: 0, platforms: [] };
+        map[day].count += posts.length;
+        if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
+      });
+    });
+    return map;
+  }, [data]);
+
+  const cells = useMemo(() => {
+    const today = new Date();
+    const start = new Date(today);
+    start.setDate(today.getDate() - 90);
+    // Pad to Sunday
+    start.setDate(start.getDate() - start.getDay());
+    const end = new Date(today);
+    end.setDate(today.getDate() + (6 - today.getDay()));
+
+    const result: Array<{ date: string; label: string } | null> = [];
+    const d = new Date(start);
+    while (d <= end) {
+      const isoDate = d.toISOString().slice(0, 10);
+      const isFuture = d > today;
+      result.push(
+        isFuture
+          ? null
+          : { date: isoDate, label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) }
+      );
+      d.setDate(d.getDate() + 1);
+    }
+    return result;
+  }, []);
+
+  const maxCount = useMemo(() => Math.max(1, ...Object.values(calendarMap).map((v) => v.count)), [calendarMap]);
+
+  const weeks: Array<Array<{ date: string; label: string } | null>> = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+
+  return (
+    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+        Post activity across all platforms — last 90 days.
+      </p>
+      <div style={{ display: "flex", gap: 4 }}>
+        {/* Day-of-week labels */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+            <div
+              key={i}
+              style={{ height: 16, lineHeight: "16px", fontSize: 10, color: "var(--text-muted)", width: 12, textAlign: "right" }}
+            >
+              {i % 2 === 1 ? d : ""}
+            </div>
+          ))}
+        </div>
+        {/* Grid */}
+        <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
+          {weeks.map((week, wi) => (
+            <div key={wi} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+              {week.map((cell, di) => {
+                if (!cell) return <div key={di} style={{ width: 16, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.02)" }} />;
+                const entry = calendarMap[cell.date];
+                const intensity = entry ? entry.count / maxCount : 0;
+                const bg = entry
+                  ? `rgba(255,107,53,${Math.max(0.2, intensity)})`
+                  : "rgba(255,255,255,0.04)";
+                return (
+                  <div
+                    key={di}
+                    title={
+                      entry
+                        ? `${cell.label}: ${entry.count} post${entry.count !== 1 ? "s" : ""} (${entry.platforms.map((p) => PLATFORM_LABELS[p]).join(", ")})`
+                        : cell.label
+                    }
+                    style={{ width: 16, height: 16, borderRadius: 2, background: bg, cursor: entry ? "pointer" : "default" }}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
+        <span>Less</span>
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => (
+          <div
+            key={t}
+            style={{ width: 12, height: 12, borderRadius: 2, background: t === 0 ? "rgba(255,255,255,0.04)" : `rgba(255,107,53,${Math.max(0.2, t)})` }}
+          />
+        ))}
+        <span>More</span>
+      </div>
+    </div>
+  );
+}
+
+// ---- Top Posts by Platform ----
+function AllTopPostsCard({ data }: { data: DashboardPayload }) {
+  const [hovered, setHovered] = useState<{ platform: Platform; postId: string; x: number; y: number } | null>(null);
+  const [activePlatform, setActivePlatform] = useState<Platform>("facebook");
+
+  const platforms: Platform[] = ["facebook", "instagram", "tiktok"];
+
+  const platformAvg = useMemo(() => {
+    const result = {} as Record<Platform, { avgLikes: number; avgComments: number; avgShares: number }>;
+    platforms.forEach((p) => {
+      const posts = data.platforms[p].topPosts;
+      result[p] = {
+        avgLikes: posts.length ? Math.round(posts.reduce((s, post) => s + post.likes, 0) / posts.length) : 0,
+        avgComments: posts.length ? Math.round(posts.reduce((s, post) => s + post.comments, 0) / posts.length) : 0,
+        avgShares: posts.length ? Math.round(posts.reduce((s, post) => s + post.shares, 0) / posts.length) : 0,
+      };
+    });
+    return result;
+  }, [data]);
+
+  const activeDetail = data.platforms[activePlatform];
+  const posts = activeDetail.topPosts;
+  const color = PLATFORM_COLORS[activePlatform];
+  const avg = platformAvg[activePlatform];
+
+  const hoveredPost = useMemo(
+    () => (hovered ? data.platforms[hovered.platform].topPosts.find((p) => p.id === hovered.postId) ?? null : null),
+    [hovered, data]
+  );
+
+  return (
+    <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Top Posts by Platform</h2>
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
+        Hover a row to compare performance vs. platform average.
+      </p>
+
+      {/* Platform tabs */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {platforms.map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setActivePlatform(p)}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 999,
+              border: `1px solid ${activePlatform === p ? PLATFORM_COLORS[p] : "var(--border)"}`,
+              background: activePlatform === p ? `${PLATFORM_COLORS[p]}22` : "transparent",
+              color: activePlatform === p ? PLATFORM_COLORS[p] : "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 700,
+            }}
+          >
+            {PLATFORM_LABELS[p]}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid var(--border)" }}>
+              {["Post", "Date", "Likes", "Comments", "Shares", "Eng. Score"].map((h, i) => (
+                <th
+                  key={h}
+                  style={{
+                    textAlign: i === 0 ? "left" : "right",
+                    padding: "6px 8px",
+                    color: "var(--text-muted)",
+                    fontWeight: 600,
+                    fontSize: 11,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map((post) => (
+              <tr
+                key={post.id}
+                onMouseEnter={(e) => {
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setHovered({ platform: activePlatform, postId: post.id, x: rect.left, y: rect.bottom });
+                  (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
+                }}
+                onMouseLeave={(e) => {
+                  setHovered(null);
+                  (e.currentTarget as HTMLElement).style.background = "";
+                }}
+                style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}
+              >
+                <td style={{ padding: "8px 8px", maxWidth: 260, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    {post.imageUrl ? (
+                      <img src={post.imageUrl} alt="" style={{ width: 36, height: 36, borderRadius: 4, objectFit: "cover", flexShrink: 0 }} />
+                    ) : (
+                      <div
+                        style={{
+                          width: 36, height: 36, borderRadius: 4, background: `${color}22`, flexShrink: 0,
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                        }}
+                      >
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+                      </div>
+                    )}
+                    <span style={{ color: "var(--text-muted)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                      {post.title || "—"}
+                    </span>
+                  </div>
+                </td>
+                <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                  {post.createdAt ? post.createdAt.slice(0, 10) : "—"}
+                </td>
+                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.likes)}</td>
+                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.comments)}</td>
+                <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.shares)}</td>
+                <td style={{ padding: "8px 8px", textAlign: "right" }}>
+                  <span style={{ background: `${color}22`, color, padding: "2px 8px", borderRadius: 4, fontWeight: 700, fontSize: 12 }}>
+                    {Math.round(post.engagementScore)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {posts.length === 0 && (
+              <tr>
+                <td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--text-muted)" }}>
+                  No posts available.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Hover tooltip */}
+      {hoveredPost && hovered && (
+        <div
+          style={{
+            position: "fixed",
+            left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 280),
+            top: hovered.y + 8,
+            width: 260,
+            background: "#111",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: 14,
+            zIndex: 1000,
+            pointerEvents: "none",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          }}
+        >
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>vs. platform average</div>
+          <ResponsiveContainer width="100%" height={100}>
+            <BarChart
+              layout="vertical"
+              data={[
+                { metric: "Likes", post: hoveredPost.likes, avg: avg.avgLikes },
+                { metric: "Comments", post: hoveredPost.comments, avg: avg.avgComments },
+                { metric: "Shares", post: hoveredPost.shares, avg: avg.avgShares },
+              ]}
+              margin={{ left: 56, right: 8, top: 0, bottom: 0 }}
+            >
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="metric"
+                tick={{ fontSize: 11, fill: "var(--text-muted)" }}
+                axisLine={false}
+                tickLine={false}
+                width={56}
+              />
+              <Bar dataKey="post" fill={color} radius={[0, 2, 2, 0]} name="This post" />
+              <Bar dataKey="avg" fill="rgba(255,255,255,0.15)" radius={[0, 2, 2, 0]} name="Avg" />
+            </BarChart>
+          </ResponsiveContainer>
+          <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
+            <span>
+              <span style={{ background: color, borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />
+              This post
+            </span>
+            <span>
+              <span style={{ background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />
+              Avg
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1540,26 +1935,6 @@ export default function DashboardPage() {
           marginBottom: 24,
         }}
       >
-        <div>
-          <div
-            style={{
-              color: "var(--text-muted)",
-              fontSize: 12,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}
-          >
-            Big Sky 30 social analytics
-          </div>
-          <h1 style={{ fontSize: 42, fontWeight: 800, lineHeight: 1.05, marginBottom: 10 }}>
-            Followers, reach, and platform breakdowns
-          </h1>
-          <p style={{ color: "var(--text-muted)", fontSize: 16, lineHeight: 1.6, maxWidth: 820 }}>
-            Platform tabs now hold the deep dives. Instagram has dedicated audience visuals instead of the generic insight cards.
-          </p>
-        </div>
-
         <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "flex-end" }}>
           <div className="pill">Updated {formatDateTime(data.generatedAt)}</div>
           <div className="pill">{formatCompactNumber(followerSummary)} total followers</div>
@@ -1609,6 +1984,10 @@ export default function DashboardPage() {
           </div>
 
           <FollowersOverviewCard data={data.trend} />
+          <PerformanceTrendsGrid data={data} />
+          <KpisByPlatformCard data={data} />
+          <PostingCalendarCard data={data} />
+          <AllTopPostsCard data={data} />
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
