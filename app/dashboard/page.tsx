@@ -951,6 +951,54 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
         {" — "}{days >= 365 ? "all time" : days <= 7 ? "last 7 days" : days <= 30 ? "last 30 days" : `last ${days} days`}
         {" ("}{months.length} {months.length === 1 ? "month" : "months"}{")"}
       </p>
+      {days <= 7 ? (
+        // Week view: large day cells spanning full width
+        (() => {
+          const today = new Date();
+          const weekDays: { date: string; label: string }[] = [];
+          for (let i = days - 1; i >= 0; i--) {
+            const d = new Date(today); d.setDate(d.getDate() - i);
+            const date = d.toISOString().slice(0, 10);
+            const label = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+            weekDays.push({ date, label });
+          }
+          const wMax = Math.max(1, ...weekDays.map((w) => calendarMap[w.date]?.value ?? 0));
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: `repeat(${weekDays.length}, 1fr)`, gap: 8 }}>
+              {weekDays.map(({ date, label }) => {
+                const entry = calendarMap[date];
+                const intensity = entry ? entry.value / wMax : 0;
+                const bg = entry ? "rgba(255,107,53," + Math.max(0.2, intensity) + ")" : "rgba(255,255,255,0.04)";
+                return (
+                  <div
+                    key={date}
+                    onMouseEnter={(e) => {
+                      if (entry) {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setCalHov({ date, x: rect.left, y: rect.bottom });
+                      }
+                    }}
+                    onMouseLeave={() => setCalHov(null)}
+                    style={{ background: bg, borderRadius: 8, padding: "14px 8px", textAlign: "center", cursor: entry ? "pointer" : "default", minHeight: 80, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}
+                  >
+                    <div style={{ fontSize: 11, color: entry ? "rgba(255,255,255,0.7)" : "var(--text-muted)", fontWeight: 600 }}>
+                      {new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: entry ? "#fff" : "var(--text-muted)" }}>
+                      {new Date(date + "T12:00:00").getDate()}
+                    </div>
+                    {entry && (
+                      <div style={{ fontSize: 11, color: "rgba(255,255,255,0.7)", fontWeight: 600 }}>
+                        {formatCompactNumber(entry.value)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()
+      ) : (
       <div style={{ display: "grid", gridTemplateColumns: months.length === 1 ? "minmax(0,360px)" : months.length === 2 ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 24 }}>
         {months.map(({ monthName, cells }) => (
           <div key={monthName}>
@@ -996,6 +1044,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
           </div>
         ))}
       </div>
+      )}
       <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 16, fontSize: 11, color: "var(--text-muted)" }}>
         <span>Less</span>
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
@@ -1004,13 +1053,26 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
         <span>More {(metric === "likes" || metric === "comments" || metric === "shares") ? metric : "posts"}</span>
       </div>
 
-      {calHov && hovPosts && (
-        <div
-          style={{
+      {calHov && hovPosts && (() => {
+        // Flatten all posts for this day, sorted by selected metric desc
+        const getMetricVal = (post: TopPost) => {
+          if (metric === "likes") return post.likes;
+          if (metric === "comments") return post.comments;
+          if (metric === "shares") return post.shares;
+          if (metric === "reach") return post.impressions ?? post.views ?? 0;
+          return post.likes + post.comments + post.shares;
+        };
+        const allDayPosts: (TopPost & { platform: Platform })[] = [];
+        hovPosts.forEach(({ platform, posts }) => posts.forEach((p) => allDayPosts.push({ ...p, platform })));
+        allDayPosts.sort((a, b) => getMetricVal(b) - getMetricVal(a));
+        const maxVal = Math.max(1, ...allDayPosts.map(getMetricVal));
+        const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric;
+        return (
+          <div style={{
             position: "fixed",
-            left: Math.min(calHov.x, (typeof window !== "undefined" ? window.innerWidth : 900) - 300),
+            left: Math.min(calHov.x, (typeof window !== "undefined" ? window.innerWidth : 900) - 320),
             top: calHov.y + 8,
-            width: 280,
+            width: 300,
             background: "#111",
             border: "1px solid var(--border)",
             borderRadius: 10,
@@ -1019,53 +1081,33 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
             pointerEvents: "none",
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
             fontSize: 12,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 6 }}>{formatShortDate(calHov.date)}</div>
-          {(metric === "likes" || metric === "comments" || metric === "shares") && calendarMap[calHov.date] && (
-            <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
-              {formatCompactNumber(calendarMap[calHov.date].value)} total {metric}
+          }}>
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatShortDate(calHov.date)}</div>
+            <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 10, fontSize: 13 }}>
+              {formatCompactNumber(calendarMap[calHov.date]?.value ?? 0)} total {metricLabel}
             </div>
-          )}
-          {calendarMap[calHov.date] && metric === "reach" && (
-            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
-              {formatCompactNumber(calendarMap[calHov.date].value)} reach
-            </div>
-          )}
-          {calendarMap[calHov.date] && metric === "followers" && (
-            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
-              {formatCompactNumber(calendarMap[calHov.date].value)} followers
-            </div>
-          )}
-          {calendarMap[calHov.date] && !(metric === "likes" || metric === "comments" || metric === "shares" || metric === "reach" || metric === "followers") && (
-            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
-              {calendarMap[calHov.date].count} post{calendarMap[calHov.date].count !== 1 ? "s" : ""}
-            </div>
-          )}
-          {hovPosts.map(({ platform, posts }) => (
-            <div key={platform} style={{ marginBottom: 10 }}>
-              <div style={{ color: PLATFORM_COLORS[platform], fontWeight: 700, fontSize: 11, marginBottom: 4 }}>
-                {PLATFORM_LABELS[platform]}
-              </div>
-              {posts.slice(0, 4).map((post) => (
-                <div key={post.id} style={{ marginBottom: 6, paddingBottom: 6, borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ color: "#fff", marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {post.title || "Untitled"}
+            {allDayPosts.map((post) => {
+              const val = getMetricVal(post);
+              const pct = Math.max(4, Math.round((val / maxVal) * 100));
+              return (
+                <div key={post.platform + post.id} style={{ marginBottom: 7 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                    <span style={{ color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, fontSize: 11 }}>
+                      {post.title || "Untitled"}
+                    </span>
+                    <span style={{ color: "var(--text-muted)", fontSize: 10, flexShrink: 0, marginLeft: 6 }}>
+                      {formatCompactNumber(val)}
+                    </span>
                   </div>
-                  <div style={{ color: "var(--text-muted)", fontSize: 10, display: "flex", gap: 10 }}>
-                    <span>{formatCompactNumber(post.likes)} likes</span>
-                    <span>{formatCompactNumber(post.comments)} comments</span>
-                    <span>{formatCompactNumber(post.shares)} shares</span>
+                  <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: pct + "%", background: PLATFORM_COLORS[post.platform], borderRadius: 3, transition: "width 0.2s" }} />
                   </div>
                 </div>
-              ))}
-              {posts.length > 4 && (
-                <div style={{ color: "var(--text-muted)", fontSize: 10 }}>+{posts.length - 4} more</div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        );
+      })()}
     </div>
   );
 }
