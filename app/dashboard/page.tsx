@@ -197,6 +197,28 @@ function formatPercent(value: number) {
   return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
 }
 
+function getCutoff(days: number): string {
+  if (days >= 365) return "0000-00-00";
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+function filterDays(data: DataPoint[], days: number): DataPoint[] {
+  if (days >= 365) return data;
+  const cut = getCutoff(days);
+  return data.filter((p) => p.day >= cut);
+}
+function filterTrendDays(data: TrendPoint[], days: number): TrendPoint[] {
+  if (days >= 365) return data;
+  const cut = getCutoff(days);
+  return data.filter((p) => p.day >= cut);
+}
+function filterPostDays(posts: TopPost[], days: number): TopPost[] {
+  if (days >= 365) return posts;
+  const cut = getCutoff(days);
+  return posts.filter((p) => (p.createdAt ?? "9999") >= cut);
+}
+
 function formatShortDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("en-US", {
     month: "short",
@@ -534,11 +556,13 @@ function SummaryTile({
   onSelect,
   metric = "followers",
   includeZero = true,
+  days = 365,
 }: {
   summary: Summary;
   onSelect?: (platform: Platform) => void;
   metric?: "followers" | "reach";
   includeZero?: boolean;
+  days?: number;
 }) {
   const color = PLATFORM_COLORS[summary.platform];
   const sharedStyle = {
@@ -589,7 +613,7 @@ function SummaryTile({
         </div>
       </div>
 
-      <MiniSparkline data={metric === "followers" ? summary.followersTrend : summary.performanceTrend} color={color} includeZero={includeZero} />
+      <MiniSparkline data={filterDays(metric === "followers" ? summary.followersTrend : summary.performanceTrend, days)} color={color} includeZero={includeZero} />
 
       <div
         style={{
@@ -640,9 +664,9 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach" }) {
+function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers", days = 365 }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach"; days?: number }) {
   const chartData = useMemo(() => {
-    if (metric === "followers") return data;
+    if (metric === "followers") return filterTrendDays(data, days);
     const map: { [day: string]: TrendPoint } = {};
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
       (allData.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
@@ -650,8 +674,8 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
         map[day][p] = value;
       });
     });
-    return Object.values(map).sort((a, b) => a.day.localeCompare(b.day));
-  }, [data, allData, metric]);
+    return filterTrendDays(Object.values(map).sort((a, b) => a.day.localeCompare(b.day)), days);
+  }, [data, allData, metric, days]);
 
   const yDomain = useMemo(
     () => getNumericDomain(
@@ -664,7 +688,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
   const label = metric === "followers" ? "All Platforms · Followers" : "All Platforms · Reach / Views";
 
   return (
-    <div className="card" style={{ padding: 22 }}>
+    <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
       <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
         {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
@@ -674,7 +698,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
           </span>
         ))}
       </div>
-      <div style={{ width: "100%", height: 160 }}>
+      <div style={{ flex: 1, minHeight: 140 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ left: 2, right: 8, top: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -697,7 +721,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
 
 
 // ---- KPIs by Platform ----
-function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
+function KpisByPlatformCard({ data, days = 365 }: { data: DashboardPayload; days?: number }) {
   const kpiDefs = [
     { label: "Avg Likes",    field: "likes" as keyof TopPost },
     { label: "Avg Comments", field: "comments" as keyof TopPost },
@@ -707,7 +731,7 @@ function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
   const chartsByMetric = useMemo(() => {
     return kpiDefs.map(({ label, field }) => {
       const bars = (["facebook", "instagram", "tiktok"] as Platform[]).map((p) => {
-        const posts = data.platforms[p].topPosts;
+        const posts = filterPostDays(data.platforms[p].topPosts, days);
         const value = posts.length
           ? Math.round(posts.reduce((s, post) => s + (post[field] as number), 0) / posts.length)
           : 0;
@@ -910,7 +934,7 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
   );
 }
 // ---- Top Posts by Platform ----
-function AllTopPostsCard({ data }: { data: DashboardPayload }) {
+function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: number }) {
   const allPlatforms: Platform[] = ["facebook", "instagram", "tiktok"];
   const [active, setActive] = useState<Platform[]>(["facebook", "instagram", "tiktok"]);
   const [sortBy, setSortBy] = useState("date");
@@ -920,7 +944,7 @@ function AllTopPostsCard({ data }: { data: DashboardPayload }) {
   const platformAvg = useMemo(() => {
     const result = {} as Record<Platform, { avgLikes: number; avgComments: number; avgShares: number }>;
     allPlatforms.forEach((p) => {
-      const posts = data.platforms[p].topPosts;
+      const posts = filterPostDays(data.platforms[p].topPosts, days);
       result[p] = {
         avgLikes: posts.length ? Math.round(posts.reduce((s, post) => s + post.likes, 0) / posts.length) : 0,
         avgComments: posts.length ? Math.round(posts.reduce((s, post) => s + post.comments, 0) / posts.length) : 0,
@@ -937,7 +961,7 @@ function AllTopPostsCard({ data }: { data: DashboardPayload }) {
     const combined: (TopPost & { platform: Platform })[] = [];
     allPlatforms.forEach((p) => {
       if (active.includes(p)) {
-        data.platforms[p].topPosts.forEach((post) => combined.push({ ...post, platform: p }));
+        filterPostDays(data.platforms[p].topPosts, days).forEach((post) => combined.push({ ...post, platform: p }));
       }
     });
     combined.sort((a, b) => {
@@ -1886,8 +1910,9 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
-  const [globalIncludeZero, setGlobalIncludeZero] = useState(true);
-  const [globalMetric, setGlobalMetric] = useState<"followers" | "reach">("followers");
+  const [globalIncludeZero, setGlobalIncludeZero] = useState(false);
+  const [globalMetric, setGlobalMetric] = useState<"followers" | "reach">("reach");
+  const [globalDays, setGlobalDays] = useState(30);
 
   useEffect(() => {
     let cancelled = false;
@@ -2017,6 +2042,11 @@ export default function DashboardPage() {
               <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
               <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
             </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "6px 14px" }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{globalDays >= 365 ? "All time" : `Last ${globalDays}d`}</span>
+              <input type="range" min={7} max={365} step={1} value={globalDays} onChange={(e) => setGlobalDays(Number(e.target.value))} style={{ width: 120, accentColor: "var(--accent)", cursor: "pointer" }} />
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>All</span>
+            </div>
           </div>
           <div
             style={{
@@ -2027,13 +2057,13 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} />
             ))}
-            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} />
+            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} />
           </div>
-          <KpisByPlatformCard data={data} />
+          <KpisByPlatformCard data={data} days={globalDays} />
           <PostingCalendarCard data={data} />
-          <AllTopPostsCard data={data} />
+          <AllTopPostsCard data={data} days={globalDays} />
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
