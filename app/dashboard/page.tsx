@@ -482,10 +482,10 @@ function AxisToggle({
 }
 
 function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[]; color: string; includeZero?: boolean }) {
+  const yDomain = useMemo(() => getNumericDomain(data.map(d => d.value), includeZero), [data, includeZero]);
   if (data.length === 0) {
     return <div style={{ height: 56, color: "var(--text-muted)", fontSize: 12 }}>No trend yet</div>;
   }
-  const yDomain = useMemo(() => getNumericDomain(data.map(d => d.value), includeZero), [data, includeZero]);
 
   return (
     <div style={{ width: "100%", height: 110 }}>
