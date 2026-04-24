@@ -42,6 +42,7 @@ type Summary = {
   points: number;
   performanceLabel: string;
   performanceNote: string;
+  followersTrend: DataPoint[];
   performanceTrend: DataPoint[];
   performanceLatest: number;
   performanceDelta: number;
@@ -583,7 +584,7 @@ function SummaryTile({
         </div>
       </div>
 
-      <MiniSparkline data={summary.performanceTrend} color={color} />
+      <MiniSparkline data={summary.followersTrend} color={color} />
 
       <div
         style={{

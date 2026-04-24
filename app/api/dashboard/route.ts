@@ -987,6 +987,7 @@ export async function GET() {
         points: followersTrend.length,
         performanceLabel: PLATFORM_META[platform].performanceLabel,
         performanceNote: PLATFORM_META[platform].performanceNote,
+        followersTrend,
         performanceTrend,
         performanceLatest: getLatestPoint(performanceTrend)?.value ?? 0,
         performanceDelta: getPointDelta(performanceTrend),
