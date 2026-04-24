@@ -597,28 +597,47 @@ function SummaryTile({
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 16,
-          alignItems: "end",
-          marginBottom: 12,
-        }}
-      >
-        <div>
-          <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>
-            {formatCompactNumber(summary.latestFollowers)}
+      {(() => {
+        // Compute big-number value + delta + label based on active metric
+        let bigVal = 0;
+        let bigDelta = 0;
+        let bigLabel = "";
+        if (metric === "followers") {
+          bigVal = summary.latestFollowers;
+          bigDelta = summary.deltaFollowers;
+          bigLabel = "followers";
+        } else if (metric === "reach") {
+          const pts = filterDays(summary.performanceTrend, days);
+          bigVal = pts.reduce((s, p) => s + p.value, 0);
+          const half = Math.floor(pts.length / 2);
+          const recent = pts.slice(half).reduce((s, p) => s + p.value, 0);
+          const prior = pts.slice(0, half).reduce((s, p) => s + p.value, 0);
+          bigDelta = recent - prior;
+          bigLabel = "total reach / views";
+        } else {
+          const drivers = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
+          const trendPts = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
+          const pts = filterDays(trendPts, days);
+          bigVal = pts.reduce((s, p) => s + p.value, 0);
+          const half = Math.floor(pts.length / 2);
+          const recent = pts.slice(half).reduce((s, p) => s + p.value, 0);
+          const prior = pts.slice(0, half).reduce((s, p) => s + p.value, 0);
+          bigDelta = recent - prior;
+          bigLabel = "total " + metric;
+        }
+        return (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{formatCompactNumber(bigVal)}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{bigLabel}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ color: bigDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>{formatDelta(bigDelta)}</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 12 }}>tracked period</div>
+            </div>
           </div>
-          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>followers</div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ color: summary.deltaFollowers >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
-            {formatDelta(summary.deltaFollowers)}
-          </div>
-          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>tracked period</div>
-        </div>
-      </div>
+        );
+      })()}
 
       {(() => {
         const engFields: (keyof TopPost)[] = ["likes", "comments", "shares"];
@@ -635,19 +654,24 @@ function SummaryTile({
 
       {(() => {
         const posts = allData?.platforms[summary.platform]?.topPosts ?? [];
-        const avg = (field: "likes" | "comments" | "shares") =>
-          posts.length ? Math.round(posts.reduce((s, p) => s + (p[field] as number), 0) / posts.length) : 0;
-        const engMetrics: { key: "likes" | "comments" | "shares"; label: string }[] = [
+        const total = (field: "likes" | "comments" | "shares") =>
+          posts.reduce((s, p) => s + (p[field] as number), 0);
+        // Show all bottom metrics EXCEPT the one already in the big number
+        const allEngMetrics: { key: "likes" | "comments" | "shares"; label: string }[] = [
           { key: "likes", label: "Likes" },
           { key: "comments", label: "Cmts" },
           { key: "shares", label: "Shares" },
         ];
+        // For followers/reach, show all three; for engagement, hide the selected one
+        const bottomMetrics = (metric === "followers" || metric === "reach")
+          ? allEngMetrics
+          : allEngMetrics.filter(({ key }) => key !== metric);
         return (
           <div style={{ display: "flex", gap: 12, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-            {engMetrics.map(({ key, label }) => (
+            {bottomMetrics.map(({ key, label }) => (
               <div key={key} style={{ flex: 1 }}>
                 <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>{label}</div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(avg(key))}</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(total(key))}</div>
               </div>
             ))}
           </div>
@@ -1181,46 +1205,79 @@ function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: Dashboa
         </table>
       </div>
 
-      {hovered && hoveredDailyData.length > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 300),
-            top: hovered.y + 8,
-            width: 280,
-            background: "#111",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-            padding: 14,
-            zIndex: 1000,
-            pointerEvents: "none",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-          }}
-        >
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
-            {colLabel[hovered.col] ?? hovered.col} by day
+      {hovered && (() => {
+        const hovPost = allPosts.find((p) => p.id === hovered.postId && p.platform === hovered.platform);
+        const pColor = PLATFORM_COLORS[hovered.platform];
+        const otherCols = (["likes", "comments", "shares", "secondary"] as string[]).filter((c) => c !== hovered.col);
+        const getVal = (post: TopPost & { platform: Platform }, col: string) => {
+          if (col === "likes") return post.likes;
+          if (col === "comments") return post.comments;
+          if (col === "shares") return post.shares;
+          if (col === "secondary") return secondaryVal(post.platform, post);
+          return 0;
+        };
+        return (
+          <div
+            style={{
+              position: "fixed",
+              left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 300),
+              top: hovered.y + 8,
+              width: 290,
+              background: "#111",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+              padding: 14,
+              zIndex: 1000,
+              pointerEvents: "none",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            }}
+          >
+            {hovPost && (
+              <>
+                <div style={{ fontSize: 12, fontWeight: 700, color: pColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {hovPost.title || "—"}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
+                  {PLATFORM_LABELS[hovered.platform]} · {hovPost.createdAt ? hovPost.createdAt.slice(0, 10) : "—"}
+                </div>
+              </>
+            )}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>{colLabel[hovered.col] ?? hovered.col}</div>
+              <div style={{ fontSize: 26, fontWeight: 800, color: pColor }}>
+                {hovPost ? formatCompactNumber(getVal(hovPost, hovered.col)) : "—"}
+              </div>
+            </div>
+            {hoveredDailyData.length > 0 && (
+              <>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>{colLabel[hovered.col] ?? hovered.col} by day</div>
+                <ResponsiveContainer width="100%" height={80}>
+                  <LineChart data={hoveredDailyData} margin={{ left: 0, right: 4, top: 2, bottom: 0 }}>
+                    <XAxis dataKey="day" hide />
+                    <YAxis hide />
+                    <Tooltip
+                      contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
+                      formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
+                      labelFormatter={(l: string) => l}
+                    />
+                    <Line type="monotone" dataKey="value" stroke={pColor} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </>
+            )}
+            {hovPost && otherCols.length > 0 && (
+              <div style={{ display: "flex", gap: 10, marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
+                {otherCols.map((col) => (
+                  <div key={col} style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 2 }}>{colLabel[col] ?? col}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{formatCompactNumber(getVal(hovPost, col))}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <ResponsiveContainer width="100%" height={100}>
-            <LineChart data={hoveredDailyData} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
-              <XAxis dataKey="day" hide />
-              <YAxis hide />
-              <Tooltip
-                contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
-                formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
-                labelFormatter={(l: string) => l}
-              />
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke={PLATFORM_COLORS[hovered.platform]}
-                strokeWidth={2}
-                dot={false}
-                activeDot={{ r: 3 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
