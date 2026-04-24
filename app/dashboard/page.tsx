@@ -358,7 +358,7 @@ function ActivityTooltip({
     <div
       style={{
         width: 320,
-        background: "rgba(12,12,12,0.96)",
+        background: "#0c0c0c",
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: 16,
         boxShadow: "0 14px 40px rgba(0,0,0,0.38)",
@@ -678,7 +678,7 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
           />
           <Tooltip
             contentStyle={{
-              background: "var(--bg-card)",
+              background: "#0c0c0c",
               border: "1px solid var(--border)",
               borderRadius: 10,
             }}
@@ -795,7 +795,7 @@ function TrendCard({
                 : undefined
             }
             contentStyle={{
-              background: "var(--bg-card)",
+              background: "#0c0c0c",
               border: "1px solid var(--border)",
               borderRadius: 10,
             }}
@@ -1053,7 +1053,7 @@ function InstagramContentMixCard({ data }: { data: ContentMixDatum[] }) {
               </Pie>
               <Tooltip
                 contentStyle={{
-                  background: "var(--bg-card)",
+                  background: "#0c0c0c",
                   border: "1px solid var(--border)",
                   borderRadius: 10,
                 }}
