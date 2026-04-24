@@ -739,18 +739,6 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
     [chartData, includeZero]
   );
 
-  const labelMap: Record<MetricKey, string> = { followers: "All Platforms · Followers", reach: "All Platforms · Reach / Views", likes: "All Platforms · Likes", comments: "All Platforms · Comments", shares: "All Platforms · Shares" };
-  const label = labelMap[metric] ?? "All Platforms";
-
-  const platformTotals = useMemo(() => {
-    const fields: (keyof TopPost)[] = ["likes", "comments", "shares"];
-    const totals: { [k: string]: number } = { likes: 0, comments: 0, shares: 0 };
-    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      const posts = filterPostDays(allData.platforms[p].topPosts, days);
-      fields.forEach((f) => { totals[f as string] += posts.reduce((s, post) => s + (post[f] as number), 0); });
-    });
-    return totals;
-  }, [allData, days]);
 
   // Big number + delta across all platforms for selected metric
   const bigTotal = useMemo(() => {
