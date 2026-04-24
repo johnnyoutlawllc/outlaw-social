@@ -505,6 +505,13 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
             width={36}
             tickFormatter={(v: number) => formatCompactNumber(v)}
           />
+          <Tooltip
+            cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
+            wrapperStyle={{ background: "transparent", border: "none" }}
+            contentStyle={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, padding: "5px 10px" }}
+            labelFormatter={(v: string) => { const d = new Date(v + "T00:00:00"); return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }}
+            formatter={(v: unknown) => [formatCompactNumber(Number(v)), "total"]}
+          />
           <Line
             type="monotone"
             dataKey="value"
