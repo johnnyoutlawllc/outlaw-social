@@ -896,11 +896,23 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
 
   const months = useMemo(() => {
     const today = new Date();
-    return [2, 1, 0].map((offset) => {
-      const ref = new Date(today.getFullYear(), today.getMonth() - offset, 1);
-      const year = ref.getFullYear();
-      const month = ref.getMonth();
-      const monthName = ref.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    // Find start date: for all-time, use earliest data point; otherwise use cutoff
+    let startStr: string;
+    if (days >= 365) {
+      const allDays = Object.keys(calendarMap).sort();
+      startStr = allDays.length > 0 ? allDays[0] : getCutoff(90);
+    } else {
+      startStr = getCutoff(days);
+    }
+    const startDate = new Date(startStr + "T12:00:00");
+    const result: { monthName: string; cells: { date: string; dayNum: number; tip: string }[] }[] = [];
+    let cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    const endYear = today.getFullYear();
+    const endMonth = today.getMonth();
+    while (cur.getFullYear() < endYear || (cur.getFullYear() === endYear && cur.getMonth() <= endMonth)) {
+      const year = cur.getFullYear();
+      const month = cur.getMonth();
+      const monthName = cur.toLocaleDateString("en-US", { month: "long", year: "numeric" });
       const daysInMonth = new Date(year, month + 1, 0).getDate();
       const firstDow = new Date(year, month, 1).getDay();
       const cells: { date: string; dayNum: number; tip: string }[] = [];
@@ -912,9 +924,11 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
         const tip = new Date(year, month, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
         cells.push({ date, dayNum: d, tip });
       }
-      return { monthName, cells };
-    });
-  }, []);
+      result.push({ monthName, cells });
+      cur = new Date(year, month + 1, 1);
+    }
+    return result;
+  }, [days, calendarMap]);
 
   const hovPosts = useMemo(() => {
     if (!calHov) return null;
@@ -933,9 +947,11 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
-        {(metric === "likes" || metric === "comments" || metric === "shares") ? `Daily ${metric} across all platforms — last 3 months.` : "Post activity across all platforms — last 3 months."}
+        {(metric === "likes" || metric === "comments" || metric === "shares") ? `Daily ${metric} across all platforms` : `Post activity across all platforms`}
+        {" — "}{days >= 365 ? "all time" : days <= 7 ? "last 7 days" : days <= 30 ? "last 30 days" : `last ${days} days`}
+        {" ("}{months.length} {months.length === 1 ? "month" : "months"}{")"}
       </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+      <div style={{ display: "grid", gridTemplateColumns: months.length === 1 ? "minmax(0,360px)" : months.length === 2 ? "repeat(2, 1fr)" : "repeat(3, 1fr)", gap: 24 }}>
         {months.map(({ monthName, cells }) => (
           <div key={monthName}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#fff" }}>{monthName}</div>
