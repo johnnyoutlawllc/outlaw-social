@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { getBrowserSupabaseClient } from "@/lib/supabase";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 interface Snapshot {
@@ -36,6 +36,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     async function load() {
+      const supabase = getBrowserSupabaseClient();
       const { data: accs } = await supabase.schema("social").from("connected_accounts").select("*").eq("is_active", true);
       setAccounts((accs ?? []) as Account[]);
 
