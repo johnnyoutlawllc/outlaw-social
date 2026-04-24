@@ -17,6 +17,7 @@ import {
 } from "recharts";
 
 type Platform = "facebook" | "instagram" | "tiktok";
+type MetricKey = "followers" | "reach" | "likes" | "comments" | "shares";
 type TabKey = "all" | Platform;
 
 type DataPoint = {
@@ -195,6 +196,12 @@ function formatValue(value: number | string) {
 
 function formatPercent(value: number) {
   return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function buildMetricTrend(drivers: { [k: string]: TopPost[] }, field: "likes" | "comments" | "shares"): DataPoint[] {
+  return Object.entries(drivers)
+    .map(([day, posts]) => ({ day, value: posts.reduce((s, p) => s + (p[field] as number), 0) }))
+    .sort((a, b) => a.day.localeCompare(b.day));
 }
 
 function getCutoff(days: number): string {
@@ -554,15 +561,17 @@ function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[];
 function SummaryTile({
   summary,
   onSelect,
-  metric = "followers",
+  metric = "followers" as MetricKey,
   includeZero = true,
   days = 365,
+  allData,
 }: {
   summary: Summary;
   onSelect?: (platform: Platform) => void;
-  metric?: "followers" | "reach";
+  metric?: MetricKey;
   includeZero?: boolean;
   days?: number;
+  allData?: DashboardPayload;
 }) {
   const color = PLATFORM_COLORS[summary.platform];
   const sharedStyle = {
@@ -613,30 +622,39 @@ function SummaryTile({
         </div>
       </div>
 
-      <MiniSparkline data={filterDays(metric === "followers" ? summary.followersTrend : summary.performanceTrend, days)} color={color} includeZero={includeZero} />
+      {(() => {
+        const engFields: (keyof TopPost)[] = ["likes", "comments", "shares"];
+        let sparkData: DataPoint[];
+        if (metric === "followers") sparkData = summary.followersTrend;
+        else if (metric === "reach") sparkData = summary.performanceTrend;
+        else {
+          const drivers = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
+          sparkData = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
+        }
+        void engFields;
+        return <MiniSparkline data={filterDays(sparkData, days)} color={color} includeZero={includeZero} />;
+      })()}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr auto",
-          gap: 12,
-          alignItems: "end",
-          marginTop: 12,
-        }}
-      >
-        <div>
-          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>
-            {metric === "followers" ? "followers" : summary.performanceLabel}
+      {(() => {
+        const posts = allData?.platforms[summary.platform]?.topPosts ?? [];
+        const avg = (field: "likes" | "comments" | "shares") =>
+          posts.length ? Math.round(posts.reduce((s, p) => s + (p[field] as number), 0) / posts.length) : 0;
+        const engMetrics: { key: "likes" | "comments" | "shares"; label: string }[] = [
+          { key: "likes", label: "Likes" },
+          { key: "comments", label: "Cmts" },
+          { key: "shares", label: "Shares" },
+        ];
+        return (
+          <div style={{ display: "flex", gap: 12, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
+            {engMetrics.map(({ key, label }) => (
+              <div key={key} style={{ flex: 1 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(avg(key))}</div>
+              </div>
+            ))}
           </div>
-          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCompactNumber(metric === "followers" ? summary.latestFollowers : summary.performanceLatest)}</div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ color: (metric === "followers" ? summary.deltaFollowers : summary.performanceDelta) >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
-            {formatDelta(metric === "followers" ? summary.deltaFollowers : summary.performanceDelta)}
-          </div>
-          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{metric === "followers" ? "tracked period" : summary.performanceNote}</div>
-        </div>
-      </div>
+        );
+      })()}
     </>
   );
 
@@ -664,12 +682,27 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers", days = 365 }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: "followers" | "reach"; days?: number }) {
+function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365 }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number }) {
   const chartData = useMemo(() => {
-    if (metric === "followers") return filterTrendDays(data, days);
     const map: { [day: string]: TrendPoint } = {};
+    let source: { [p: string]: DataPoint[] } = {};
+    if (metric === "followers") {
+      (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+        source[p] = allData.platforms[p].followersTrend ?? [];
+      });
+    } else if (metric === "reach") {
+      (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+        source[p] = allData.platforms[p].performanceTrend ?? [];
+      });
+    } else {
+      const field = metric as "likes" | "comments" | "shares";
+      (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+        const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+        source[p] = buildMetricTrend(drivers, field);
+      });
+    }
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      (allData.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
+      (source[p] ?? []).forEach(({ day, value }) => {
         if (!map[day]) map[day] = { day, facebook: null, instagram: null, tiktok: null };
         map[day][p] = value;
       });
@@ -685,7 +718,8 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
     [chartData, includeZero]
   );
 
-  const label = metric === "followers" ? "All Platforms · Followers" : "All Platforms · Reach / Views";
+  const labelMap: Record<MetricKey, string> = { followers: "All Platforms · Followers", reach: "All Platforms · Reach / Views", likes: "All Platforms · Likes", comments: "All Platforms · Comments", shares: "All Platforms · Shares" };
+  const label = labelMap[metric] ?? "All Platforms";
 
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
@@ -720,61 +754,6 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
 }
 
 
-// ---- KPIs by Platform ----
-function KpisByPlatformCard({ data, days = 365 }: { data: DashboardPayload; days?: number }) {
-  const kpiDefs = [
-    { label: "Avg Likes",    field: "likes" as keyof TopPost },
-    { label: "Avg Comments", field: "comments" as keyof TopPost },
-    { label: "Avg Shares",   field: "shares" as keyof TopPost },
-  ];
-
-  const chartsByMetric = useMemo(() => {
-    return kpiDefs.map(({ label, field }) => {
-      const bars = (["facebook", "instagram", "tiktok"] as Platform[]).map((p) => {
-        const posts = filterPostDays(data.platforms[p].topPosts, days);
-        const value = posts.length
-          ? Math.round(posts.reduce((s, post) => s + (post[field] as number), 0) / posts.length)
-          : 0;
-        return { platform: p, label: PLATFORM_LABELS[p], value, color: PLATFORM_COLORS[p] };
-      });
-      return { metric: label, bars };
-    });
-  }, [data]);
-
-  return (
-    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>KPIs by Platform</h2>
-      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 18 }}>
-        Average likes, comments, and shares per post across platforms.
-      </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
-        {chartsByMetric.map(({ metric, bars }) => (
-          <div key={metric} style={{ padding: 16, background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid var(--border)" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 12 }}>{metric.toUpperCase()}</div>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={bars} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="30%">
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={42} label={{ value: metric, angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "var(--text-muted)", textAnchor: "middle" } }} />
-                <Tooltip
-                  cursor={{ fill: "rgba(255,255,255,0.04)" }}
-                  wrapperStyle={{ background: "transparent", border: "none" }}
-                  contentStyle={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, padding: "6px 10px" }}
-                  formatter={(v: unknown) => [formatCompactNumber(Number(v)), metric]}
-                />
-                <Bar dataKey="value" radius={[3, 3, 0, 0]}>
-                  {bars.map((b) => (
-                    <Cell key={b.platform} fill={b.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 // ---- Posting Calendar ----
 function PostingCalendarCard({ data }: { data: DashboardPayload }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
@@ -1911,7 +1890,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [globalIncludeZero, setGlobalIncludeZero] = useState(false);
-  const [globalMetric, setGlobalMetric] = useState<"followers" | "reach">("reach");
+  const [globalMetric, setGlobalMetric] = useState<MetricKey>("reach");
   const [globalDays, setGlobalDays] = useState(30);
 
   useEffect(() => {
@@ -2032,7 +2011,7 @@ export default function DashboardPage() {
         <>
           <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
             <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
-              {(["followers", "reach"] as const).map((m) => (
+              {(["followers", "reach", "likes", "comments", "shares"] as MetricKey[]).map((m) => (
                 <button key={m} type="button" onClick={() => setGlobalMetric(m)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalMetric === m ? "var(--accent)" : "transparent", color: globalMetric === m ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>
                   {m.charAt(0).toUpperCase() + m.slice(1)}
                 </button>
@@ -2057,11 +2036,10 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} allData={data} />
             ))}
             <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} />
           </div>
-          <KpisByPlatformCard data={data} days={globalDays} />
           <PostingCalendarCard data={data} />
           <AllTopPostsCard data={data} days={globalDays} />
         </>
