@@ -559,6 +559,7 @@ function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[];
 function SummaryTile({
   summary,
   onSelect,
+  onMetricChange,
   metric = "followers" as MetricKey,
   includeZero = true,
   days = 365,
@@ -566,6 +567,7 @@ function SummaryTile({
 }: {
   summary: Summary;
   onSelect?: (platform: Platform) => void;
+  onMetricChange?: (m: MetricKey) => void;
   metric?: MetricKey;
   includeZero?: boolean;
   days?: number;
@@ -668,9 +670,12 @@ function SummaryTile({
         return (
           <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
             {bottomMetrics.map(({ key, label, val }) => (
-              <div key={key} style={{ flex: "1 1 auto", minWidth: 48 }}>
+              <div key={key}
+                onClick={(e) => { e.stopPropagation(); onMetricChange?.(key); }}
+                style={{ flex: "1 1 auto", minWidth: 48, cursor: onMetricChange ? "pointer" : "default" }}
+              >
                 <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{formatCompactNumber(val)}</div>
+                <div style={{ fontWeight: 700, fontSize: 13, transition: "color 0.1s" }}>{formatCompactNumber(val)}</div>
               </div>
             ))}
           </div>
@@ -703,7 +708,7 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365 }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number }) {
+function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; onMetricChange?: (m: MetricKey) => void }) {
   const chartData = useMemo(() => {
     const map: { [day: string]: TrendPoint } = {};
     const source: { [p: string]: DataPoint[] } = {};
@@ -787,16 +792,16 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
 
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
-      {/* Header: matches SummaryTile */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-        <div style={{ display: "flex", gap: 6 }}>
+      {/* Header: dots beside each platform name */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>All Platforms</div>
+        <div style={{ display: "flex", gap: 12 }}>
           {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
-            <div key={p} style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], marginTop: 2 }} />
+            <span key={p} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "var(--text-muted)" }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], display: "inline-block", flexShrink: 0 }} />
+              {PLATFORM_LABELS[p]}
+            </span>
           ))}
-        </div>
-        <div>
-          <div style={{ fontWeight: 700 }}>All Platforms</div>
-          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{(Object.keys(PLATFORM_LABELS) as Platform[]).map((p) => PLATFORM_LABELS[p]).join(" · ")}</div>
         </div>
       </div>
 
@@ -834,7 +839,10 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
       {/* Bottom stats: all metrics except selected */}
       <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
         {bottomTotals.map(({ key, label, val }) => (
-          <div key={key} style={{ flex: "1 1 auto", minWidth: 48 }}>
+          <div key={key}
+            onClick={() => onMetricChange?.(key)}
+            style={{ flex: "1 1 auto", minWidth: 48, cursor: onMetricChange ? "pointer" : "default" }}
+          >
             <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{formatCompactNumber(val)}</div>
           </div>
@@ -2077,6 +2085,72 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
   );
 }
 
+function DateRangeFilter({ globalDays, onDaysChange }: { globalDays: number; onDaysChange: (d: number) => void }) {
+  const presets = [
+    { label: "Last 7d", days: 7 },
+    { label: "Last 30d", days: 30 },
+    { label: "All Time", days: 365 },
+  ];
+  const isCustom = !presets.some((p) => p.days === globalDays);
+  const [showCustom, setShowCustom] = useState(isCustom);
+  const [customFrom, setCustomFrom] = useState(() => {
+    if (isCustom) {
+      const d = new Date(); d.setDate(d.getDate() - globalDays);
+      return d.toISOString().slice(0, 10);
+    }
+    return "";
+  });
+
+  const applyCustom = (from: string) => {
+    if (!from) return;
+    const diff = Math.max(1, Math.round((Date.now() - new Date(from).getTime()) / 86400000));
+    onDaysChange(diff);
+  };
+
+  const btnStyle = (active: boolean): React.CSSProperties => ({
+    padding: "6px 14px",
+    borderRadius: 7,
+    border: "none",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    background: active ? "rgba(255,255,255,0.08)" : "transparent",
+    color: active ? "#fff" : "var(--text-muted)",
+    transition: "all 0.15s",
+    whiteSpace: "nowrap" as const,
+  });
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4, flexWrap: "wrap" }}>
+      {presets.map((p) => (
+        <button key={p.label} type="button"
+          onClick={() => { setShowCustom(false); onDaysChange(p.days); }}
+          style={btnStyle(!showCustom && globalDays === p.days)}
+        >
+          {p.label}
+        </button>
+      ))}
+      <button type="button"
+        onClick={() => setShowCustom((v) => !v)}
+        style={btnStyle(showCustom)}
+      >
+        Custom
+      </button>
+      {showCustom && (
+        <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 6 }}>
+          <input
+            type="date"
+            value={customFrom}
+            onChange={(e) => { setCustomFrom(e.target.value); applyCustom(e.target.value); }}
+            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 6, color: "#fff", fontSize: 12, padding: "4px 8px", cursor: "pointer" }}
+          />
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>→ today</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2214,11 +2288,7 @@ export default function DashboardPage() {
               <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
               <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: "6px 14px" }}>
-              <span style={{ fontSize: 12, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{globalDays >= 365 ? "All time" : `Last ${globalDays}d`}</span>
-              <input type="range" min={7} max={365} step={1} value={globalDays} onChange={(e) => setGlobalDays(Number(e.target.value))} style={{ width: 120, accentColor: "var(--accent)", cursor: "pointer" }} />
-              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>All</span>
-            </div>
+            <DateRangeFilter globalDays={globalDays} onDaysChange={setGlobalDays} />
           </div>
           <div
             style={{
@@ -2229,9 +2299,9 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} allData={data} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} onMetricChange={setGlobalMetric} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} allData={data} />
             ))}
-            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} />
+            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} onMetricChange={setGlobalMetric} />
           </div>
           <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} />
           <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} />
