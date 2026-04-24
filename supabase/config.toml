@@ -1,0 +1,12 @@
+[api]
+enabled = true
+port = 54321
+
+[functions.ingest-facebook]
+verify_jwt = false
+
+[functions.ingest-instagram]
+verify_jwt = false
+
+[functions.ingest-tiktok]
+verify_jwt = false
