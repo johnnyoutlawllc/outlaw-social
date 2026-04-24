@@ -711,6 +711,36 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
 }
 
 // ---- Performance Trends Grid ----
+function makeTrendTooltip(
+  drivers: { [k: string]: TopPost[] },
+  performanceLabel: string,
+  color: string
+) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return function TrendTooltipInner(props: any) {
+    if (!props.active || !props.payload?.length) return null;
+    const day = String(props.label ?? "");
+    const posts = (drivers[day] ?? []) as TopPost[];
+    return (
+      <div style={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 12, maxWidth: 220 }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{formatShortDate(day)}</div>
+        <div style={{ color: color }}>{performanceLabel}: <strong>{formatCompactNumber(props.payload[0].value)}</strong></div>
+        {posts.length > 0 && (
+          <div>
+            <div style={{ color: "var(--text-muted)", marginTop: 8, marginBottom: 3, fontSize: 10 }}>Posts</div>
+            {posts.slice(0, 3).map((post) => (
+              <div key={post.id} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>
+                {post.title || "Untitled"}
+              </div>
+            ))}
+            {posts.length > 3 && <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{posts.length - 3} more</div>}
+          </div>
+        )}
+      </div>
+    );
+  };
+}
+
 function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24 }}>
@@ -722,6 +752,8 @@ function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
         {data.summaries.map((summary) => {
           const color = PLATFORM_COLORS[summary.platform];
           const trend = summary.performanceTrend.slice(-30);
+          const drivers = (data.platforms[summary.platform].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+          const TooltipContent = makeTrendTooltip(drivers, summary.performanceLabel, color);
           return (
             <div
               key={summary.platform}
@@ -734,15 +766,19 @@ function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
                 </div>
                 <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{summary.performanceLabel}</span>
               </div>
-              <ResponsiveContainer width="100%" height={110}>
+              <ResponsiveContainer width="100%" height={140}>
                 <BarChart data={trend} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="20%">
-                  <XAxis dataKey="day" hide />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
-                    labelFormatter={(l) => formatShortDate(String(l))}
-                    formatter={(v: unknown) => [formatCompactNumber(Number(v)), summary.performanceLabel]}
+                  <XAxis
+                    dataKey="day"
+                    tickFormatter={formatShortDate}
+                    tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+                    axisLine={false}
+                    tickLine={false}
+                    minTickGap={36}
+                    interval="preserveStartEnd"
                   />
+                  <YAxis hide />
+                  <Tooltip content={TooltipContent} />
                   <Bar dataKey="value" fill={color} radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -764,17 +800,22 @@ function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
 
 // ---- KPIs by Platform ----
 function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
-  const kpiRows = useMemo(() => {
-    return (["Avg Likes", "Avg Comments", "Avg Shares"] as const).map((metric) => {
-      const row: Record<string, string | number> = { metric };
-      (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+  const kpiDefs = [
+    { label: "Avg Likes",    field: "likes" as keyof TopPost },
+    { label: "Avg Comments", field: "comments" as keyof TopPost },
+    { label: "Avg Shares",   field: "shares" as keyof TopPost },
+  ];
+
+  const chartsByMetric = useMemo(() => {
+    return kpiDefs.map(({ label, field }) => {
+      const bars = (["facebook", "instagram", "tiktok"] as Platform[]).map((p) => {
         const posts = data.platforms[p].topPosts;
-        if (!posts.length) { row[p] = 0; return; }
-        const field: keyof TopPost =
-          metric === "Avg Likes" ? "likes" : metric === "Avg Comments" ? "comments" : "shares";
-        row[p] = Math.round(posts.reduce((s, post) => s + (post[field] as number), 0) / posts.length);
+        const value = posts.length
+          ? Math.round(posts.reduce((s, post) => s + (post[field] as number), 0) / posts.length)
+          : 0;
+        return { platform: p, label: PLATFORM_LABELS[p], value, color: PLATFORM_COLORS[p] };
       });
-      return row;
+      return { metric: label, bars };
     });
   }, [data]);
 
@@ -784,31 +825,38 @@ function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 18 }}>
         Average likes, comments, and shares per post across platforms.
       </p>
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={kpiRows} margin={{ left: 8, right: 8, top: 8, bottom: 0 }}>
-          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-          <XAxis dataKey="metric" tick={{ fontSize: 13, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} />
-          <Tooltip
-            contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}
-            formatter={(v: unknown, name: unknown) => [formatCompactNumber(Number(v)), PLATFORM_LABELS[name as Platform] ?? String(name)]}
-          />
-          <Legend formatter={(value: unknown) => PLATFORM_LABELS[value as Platform] ?? String(value)} />
-          {(["facebook", "instagram", "tiktok"] as Platform[]).map((p) => (
-            <Bar key={p} dataKey={p} fill={PLATFORM_COLORS[p]} radius={[3, 3, 0, 0]} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+        {chartsByMetric.map(({ metric, bars }) => (
+          <div key={metric} style={{ padding: 16, background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid var(--border)" }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)", marginBottom: 12 }}>{metric.toUpperCase()}</div>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={bars} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="30%">
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={36} />
+                <Tooltip
+                  contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: unknown) => [formatCompactNumber(Number(v)), metric]}
+                />
+                <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+                  {bars.map((b) => (
+                    <Cell key={b.platform} fill={b.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
-
 // ---- Posting Calendar ----
 function PostingCalendarCard({ data }: { data: DashboardPayload }) {
   const calendarMap = useMemo(() => {
-    const map: Record<string, { count: number; platforms: Platform[] }> = {};
+    const map: { [d: string]: { count: number; platforms: Platform[] } } = {};
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      const drivers = data.platforms[p].activityDrivers ?? {};
+      const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
       Object.entries(drivers).forEach(([day, posts]) => {
         if (!map[day]) map[day] = { count: 0, platforms: [] };
         map[day].count += posts.length;
@@ -818,94 +866,89 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
     return map;
   }, [data]);
 
-  const cells = useMemo(() => {
-    const today = new Date();
-    const start = new Date(today);
-    start.setDate(today.getDate() - 90);
-    // Pad to Sunday
-    start.setDate(start.getDate() - start.getDay());
-    const end = new Date(today);
-    end.setDate(today.getDate() + (6 - today.getDay()));
-
-    const result: Array<{ date: string; label: string } | null> = [];
-    const d = new Date(start);
-    while (d <= end) {
-      const isoDate = d.toISOString().slice(0, 10);
-      const isFuture = d > today;
-      result.push(
-        isFuture
-          ? null
-          : { date: isoDate, label: d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) }
-      );
-      d.setDate(d.getDate() + 1);
-    }
-    return result;
-  }, []);
-
   const maxCount = useMemo(() => Math.max(1, ...Object.values(calendarMap).map((v) => v.count)), [calendarMap]);
 
-  const weeks: Array<Array<{ date: string; label: string } | null>> = [];
-  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  const months = useMemo(() => {
+    const today = new Date();
+    return [2, 1, 0].map((offset) => {
+      const ref = new Date(today.getFullYear(), today.getMonth() - offset, 1);
+      const year = ref.getFullYear();
+      const month = ref.getMonth();
+      const monthName = ref.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const firstDow = new Date(year, month, 1).getDay();
+      const cells: { date: string; dayNum: number; tip: string }[] = [];
+      for (let i = 0; i < firstDow; i++) cells.push({ date: "", dayNum: 0, tip: "" });
+      for (let d = 1; d <= daysInMonth; d++) {
+        const mm = String(month + 1).padStart(2, "0");
+        const dd = String(d).padStart(2, "0");
+        const date = year + "-" + mm + "-" + dd;
+        const tip = new Date(year, month, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+        cells.push({ date, dayNum: d, tip });
+      }
+      return { monthName, cells };
+    });
+  }, []);
+
+  const DOW = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24 }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
-      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-        Post activity across all platforms — last 90 days.
+      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
+        Post activity across all platforms — last 3 months.
       </p>
-      <div style={{ display: "flex", gap: 4 }}>
-        {/* Day-of-week labels */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-            <div
-              key={i}
-              style={{ height: 16, lineHeight: "16px", fontSize: 10, color: "var(--text-muted)", width: 12, textAlign: "right" }}
-            >
-              {i % 2 === 1 ? d : ""}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
+        {months.map(({ monthName, cells }) => (
+          <div key={monthName}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: "#fff" }}>{monthName}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2, marginBottom: 4 }}>
+              {DOW.map((d) => (
+                <div key={d} style={{ fontSize: 9, color: "var(--text-muted)", textAlign: "center", fontWeight: 600 }}>{d}</div>
+              ))}
             </div>
-          ))}
-        </div>
-        {/* Grid */}
-        <div style={{ display: "flex", gap: 3, flexWrap: "nowrap", overflowX: "auto" }}>
-          {weeks.map((week, wi) => (
-            <div key={wi} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              {week.map((cell, di) => {
-                if (!cell) return <div key={di} style={{ width: 16, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.02)" }} />;
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
+              {cells.map((cell, i) => {
+                if (!cell.date) return <div key={"b" + i} />;
                 const entry = calendarMap[cell.date];
                 const intensity = entry ? entry.count / maxCount : 0;
-                const bg = entry
-                  ? `rgba(255,107,53,${Math.max(0.2, intensity)})`
-                  : "rgba(255,255,255,0.04)";
+                const bg = entry ? "rgba(255,107,53," + Math.max(0.25, intensity) + ")" : "rgba(255,255,255,0.04)";
+                const tipText = entry
+                  ? cell.tip + ": " + entry.count + " post" + (entry.count !== 1 ? "s" : "") + " (" + entry.platforms.map((p) => PLATFORM_LABELS[p]).join(", ") + ")"
+                  : cell.tip;
                 return (
                   <div
-                    key={di}
-                    title={
-                      entry
-                        ? `${cell.label}: ${entry.count} post${entry.count !== 1 ? "s" : ""} (${entry.platforms.map((p) => PLATFORM_LABELS[p]).join(", ")})`
-                        : cell.label
-                    }
-                    style={{ width: 16, height: 16, borderRadius: 2, background: bg, cursor: entry ? "pointer" : "default" }}
-                  />
+                    key={cell.date}
+                    title={tipText}
+                    style={{
+                      aspectRatio: "1",
+                      borderRadius: 3,
+                      background: bg,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 9,
+                      color: entry ? "rgba(255,255,255,0.85)" : "var(--text-muted)",
+                    }}
+                  >
+                    {cell.dayNum > 0 ? cell.dayNum : null}
+                  </div>
                 );
               })}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
-      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
+      <div style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 16, fontSize: 11, color: "var(--text-muted)" }}>
         <span>Less</span>
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-          <div
-            key={t}
-            style={{ width: 12, height: 12, borderRadius: 2, background: t === 0 ? "rgba(255,255,255,0.04)" : `rgba(255,107,53,${Math.max(0.2, t)})` }}
-          />
+          <div key={t} style={{ width: 12, height: 12, borderRadius: 2, background: t === 0 ? "rgba(255,255,255,0.04)" : "rgba(255,107,53," + Math.max(0.25, t) + ")" }} />
         ))}
         <span>More</span>
       </div>
     </div>
   );
 }
-
 // ---- Top Posts by Platform ----
 function AllTopPostsCard({ data }: { data: DashboardPayload }) {
   const [hovered, setHovered] = useState<{ platform: Platform; postId: string; x: number; y: number } | null>(null);
