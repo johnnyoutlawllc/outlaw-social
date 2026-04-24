@@ -721,6 +721,16 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
   const labelMap: Record<MetricKey, string> = { followers: "All Platforms · Followers", reach: "All Platforms · Reach / Views", likes: "All Platforms · Likes", comments: "All Platforms · Comments", shares: "All Platforms · Shares" };
   const label = labelMap[metric] ?? "All Platforms";
 
+  const platformTotals = useMemo(() => {
+    const fields: (keyof TopPost)[] = ["likes", "comments", "shares"];
+    const totals: { [k: string]: number } = { likes: 0, comments: 0, shares: 0 };
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      const posts = filterPostDays(allData.platforms[p].topPosts, days);
+      fields.forEach((f) => { totals[f as string] += posts.reduce((s, post) => s + (post[f] as number), 0); });
+    });
+    return totals;
+  }, [allData, days]);
+
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
@@ -730,6 +740,14 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], display: "inline-block" }} />
             {PLATFORM_LABELS[p]}
           </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 0, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
+        {(["likes", "comments", "shares"] as const).map((f) => (
+          <div key={f} style={{ flex: 1 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>{f.charAt(0).toUpperCase() + f.slice(1)}</div>
+            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(platformTotals[f])}</div>
+          </div>
         ))}
       </div>
       <div style={{ flex: 1, minHeight: 140 }}>
@@ -755,23 +773,27 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
 
 
 // ---- Posting Calendar ----
-function PostingCalendarCard({ data }: { data: DashboardPayload }) {
+function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: DashboardPayload; metric?: MetricKey; days?: number }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
 
   const calendarMap = useMemo(() => {
-    const map: { [d: string]: { count: number; platforms: Platform[] } } = {};
+    const map: { [d: string]: { count: number; value: number; platforms: Platform[] } } = {};
+    const engField = (metric === "likes" || metric === "comments" || metric === "shares") ? metric : null;
+    const cut = days < 365 ? getCutoff(days) : "0000-00-00";
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
       const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
       Object.entries(drivers).forEach(([day, posts]) => {
-        if (!map[day]) map[day] = { count: 0, platforms: [] };
+        if (day < cut) return;
+        if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
         map[day].count += posts.length;
+        map[day].value += engField ? posts.reduce((s, post) => s + (post[engField] as number), 0) : posts.length;
         if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
       });
     });
     return map;
-  }, [data]);
+  }, [data, metric, days]);
 
-  const maxCount = useMemo(() => Math.max(1, ...Object.values(calendarMap).map((v) => v.count)), [calendarMap]);
+  const maxValue = useMemo(() => Math.max(1, ...Object.values(calendarMap).map((v) => v.value)), [calendarMap]);
 
   const months = useMemo(() => {
     const today = new Date();
@@ -812,7 +834,7 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
-        Post activity across all platforms — last 3 months.
+        {(metric === "likes" || metric === "comments" || metric === "shares") ? `Daily ${metric} across all platforms — last 3 months.` : "Post activity across all platforms — last 3 months."}
       </p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 24 }}>
         {months.map(({ monthName, cells }) => (
@@ -827,7 +849,7 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
               {cells.map((cell, i) => {
                 if (!cell.date) return <div key={"b" + i} />;
                 const entry = calendarMap[cell.date];
-                const intensity = entry ? entry.count / maxCount : 0;
+                const intensity = entry ? entry.value / maxValue : 0;
                 const bg = entry ? "rgba(255,107,53," + Math.max(0.25, intensity) + ")" : "rgba(255,255,255,0.04)";
                 return (
                   <div
@@ -864,7 +886,7 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <div key={t} style={{ width: 12, height: 12, borderRadius: 2, background: t === 0 ? "rgba(255,255,255,0.04)" : "rgba(255,107,53," + Math.max(0.25, t) + ")" }} />
         ))}
-        <span>More</span>
+        <span>More {(metric === "likes" || metric === "comments" || metric === "shares") ? metric : "posts"}</span>
       </div>
 
       {calHov && hovPosts && (
@@ -884,7 +906,17 @@ function PostingCalendarCard({ data }: { data: DashboardPayload }) {
             fontSize: 12,
           }}
         >
-          <div style={{ fontWeight: 700, marginBottom: 10 }}>{formatShortDate(calHov.date)}</div>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>{formatShortDate(calHov.date)}</div>
+          {(metric === "likes" || metric === "comments" || metric === "shares") && calendarMap[calHov.date] && (
+            <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
+              {formatCompactNumber(calendarMap[calHov.date].value)} total {metric}
+            </div>
+          )}
+          {calendarMap[calHov.date] && !(metric === "likes" || metric === "comments" || metric === "shares") && (
+            <div style={{ color: "var(--text-muted)", marginBottom: 8, fontSize: 11 }}>
+              {calendarMap[calHov.date].count} post{calendarMap[calHov.date].count !== 1 ? "s" : ""}
+            </div>
+          )}
           {hovPosts.map(({ platform, posts }) => (
             <div key={platform} style={{ marginBottom: 10 }}>
               <div style={{ color: PLATFORM_COLORS[platform], fontWeight: 700, fontSize: 11, marginBottom: 4 }}>
@@ -2040,7 +2072,7 @@ export default function DashboardPage() {
             ))}
             <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} />
           </div>
-          <PostingCalendarCard data={data} />
+          <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} />
           <AllTopPostsCard data={data} days={globalDays} />
         </>
       ) : selectedDetail ? (
