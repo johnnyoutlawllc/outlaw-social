@@ -685,7 +685,7 @@ function SummaryTile({
 function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365 }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number }) {
   const chartData = useMemo(() => {
     const map: { [day: string]: TrendPoint } = {};
-    let source: { [p: string]: DataPoint[] } = {};
+    const source: { [p: string]: DataPoint[] } = {};
     if (metric === "followers") {
       (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
         source[p] = allData.platforms[p].followersTrend ?? [];
