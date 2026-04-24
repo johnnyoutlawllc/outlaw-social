@@ -833,7 +833,7 @@ function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
               <BarChart data={bars} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="30%">
                 <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={36} />
+                <YAxis tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={42} label={{ value: metric, angle: -90, position: "insideLeft", offset: 10, style: { fontSize: 10, fill: "var(--text-muted)", textAnchor: "middle" } }} />
                 <Tooltip
                   cursor={{ fill: "rgba(255,255,255,0.04)" }}
                   wrapperStyle={{ background: "transparent", border: "none" }}
@@ -2126,7 +2126,6 @@ export default function DashboardPage() {
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
-          <SummaryTile summary={data.summaries.find((summary) => summary.platform === activeTab)!} />
           <PlatformSection detail={selectedDetail} />
         </div>
       ) : null}
