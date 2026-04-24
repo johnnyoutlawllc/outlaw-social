@@ -16,6 +16,7 @@ interface Account {
   id: string;
   platform: string;
 
+  display_name: string;
   platform_username: string;
   avatar_url: string;
   last_synced_at: string;
@@ -36,13 +37,13 @@ export default function DashboardPage() {
   useEffect(() => {
     async function load() {
       const { data: accs } = await supabase.schema("social").from("connected_accounts").select("*").eq("is_active", true);
-      setAccounts(accs ?? []);
+      setAccounts((accs ?? []) as Account[]);
 
       const { data: snaps } = await supabase.schema("social").from("account_snapshots")
         .select("snapshot_date, followers_count, reach, impressions, platform, platform_account_id")
         .order("snapshot_date", { ascending: true })
         .limit(60);
-      setSnapshots(snaps ?? []);
+      setSnapshots((snaps ?? []) as Snapshot[]);
       setLoading(false);
     }
     load();
