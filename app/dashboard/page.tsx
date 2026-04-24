@@ -6,7 +6,6 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  Legend,
   Line,
   LineChart,
   Pie,
@@ -696,36 +695,6 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
   );
 }
 
-// ---- Performance Trends Grid ----
-function makeTrendTooltip(
-  drivers: { [k: string]: TopPost[] },
-  performanceLabel: string,
-  color: string
-) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return function TrendTooltipInner(props: any) {
-    if (!props.active || !props.payload?.length) return null;
-    const day = String(props.label ?? "");
-    const posts = (drivers[day] ?? []) as TopPost[];
-    return (
-      <div style={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, padding: "10px 12px", fontSize: 12, maxWidth: 220 }}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>{formatShortDate(day)}</div>
-        <div style={{ color: color }}>{performanceLabel}: <strong>{formatCompactNumber(props.payload[0].value)}</strong></div>
-        {posts.length > 0 && (
-          <div>
-            <div style={{ color: "var(--text-muted)", marginTop: 8, marginBottom: 3, fontSize: 10 }}>Posts</div>
-            {posts.slice(0, 3).map((post) => (
-              <div key={post.id} style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>
-                {post.title || "Untitled"}
-              </div>
-            ))}
-            {posts.length > 3 && <div style={{ color: "var(--text-muted)", fontSize: 11 }}>{posts.length - 3} more</div>}
-          </div>
-        )}
-      </div>
-    );
-  };
-}
 
 // ---- KPIs by Platform ----
 function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
