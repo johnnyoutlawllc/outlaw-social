@@ -727,63 +727,6 @@ function makeTrendTooltip(
   };
 }
 
-function PerformanceTrendsGrid({ data }: { data: DashboardPayload }) {
-  return (
-    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Performance Trends by Platform</h2>
-      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 18 }}>
-        Daily reach / views over the last 30 days per platform.
-      </p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-        {data.summaries.map((summary) => {
-          const color = PLATFORM_COLORS[summary.platform];
-          const trend = summary.performanceTrend.slice(-30);
-          const drivers = (data.platforms[summary.platform].activityDrivers ?? {}) as { [k: string]: TopPost[] };
-          const TooltipContent = makeTrendTooltip(drivers, summary.performanceLabel, color);
-          return (
-            <div
-              key={summary.platform}
-              style={{ padding: 16, background: "rgba(255,255,255,0.03)", borderRadius: 10, border: "1px solid var(--border)" }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{summary.label}</span>
-                </div>
-                <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{summary.performanceLabel}</span>
-              </div>
-              <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={trend} margin={{ left: 0, right: 0, top: 4, bottom: 0 }} barCategoryGap="20%">
-                  <XAxis
-                    dataKey="day"
-                    tickFormatter={formatShortDate}
-                    tick={{ fontSize: 9, fill: "var(--text-muted)" }}
-                    axisLine={false}
-                    tickLine={false}
-                    minTickGap={36}
-                    interval="preserveStartEnd"
-                  />
-                  <YAxis hide />
-                  <Tooltip content={TooltipContent} />
-                  <Bar dataKey="value" fill={color} radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 12 }}>
-                <span style={{ color: "var(--text-muted)" }}>
-                  Latest: <strong style={{ color: "#fff" }}>{formatCompactNumber(summary.performanceLatest)}</strong>
-                </span>
-                <span style={{ color: summary.performanceDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>
-                  {formatDelta(summary.performanceDelta)}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 // ---- KPIs by Platform ----
 function KpisByPlatformCard({ data }: { data: DashboardPayload }) {
   const kpiDefs = [
