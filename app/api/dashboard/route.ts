@@ -24,6 +24,7 @@ type TopPostRow = {
   create_time?: string;
   title: string | null;
   image_url: string | null;
+  media_type?: string | null;
   permalink: string | null;
   likes?: number | string | null;
   comments?: number | string | null;
@@ -173,6 +174,7 @@ function normalizePost(row: TopPostRow) {
     createdAt: row.created_time ?? row.create_time ?? null,
     title: row.title ?? "Untitled post",
     imageUrl: row.image_url,
+    mediaType: row.media_type ?? null,
     permalink: row.permalink,
     likes: toNumber(row.likes),
     comments: toNumber(row.comments),
@@ -316,6 +318,7 @@ export async function GET() {
         fp.created_time,
         left(coalesce(fp.message, ''), 160) as title,
         fp.full_picture as image_url,
+        null::text as media_type,
         null::text as permalink,
         coalesce(m.likes, 0) as likes,
         coalesce(m.comments, 0) as comments,
@@ -435,7 +438,8 @@ export async function GET() {
         im.media_id as id,
         im.timestamp as created_time,
         left(coalesce(im.caption, ''), 160) as title,
-        coalesce(im.media_url, im.thumbnail_url) as image_url,
+        coalesce(im.thumbnail_url, im.media_url) as image_url,
+        im.media_type,
         im.permalink,
         coalesce(m.likes, 0) as likes,
         coalesce(m.comments, 0) as comments,
@@ -552,6 +556,7 @@ export async function GET() {
         tv.create_time,
         left(coalesce(tv.title, tv.video_description, ''), 160) as title,
         tv.cover_image_url as image_url,
+        null::text as media_type,
         tv.share_url as permalink,
         coalesce(ls.like_count, 0) as likes,
         coalesce(ls.comment_count, 0) as comments,
@@ -801,6 +806,31 @@ export async function GET() {
             note: getBestPoint(instagramPerformance)?.day,
           },
         ],
+        contentMix: instagramMixRows.map((row) => ({
+          label: row.media_type,
+          value: toNumber(row.posts),
+          avgEngagement: toNumber(row.avg_engagement),
+          avgShares: toNumber(row.avg_shares),
+          avgSaves: toNumber(row.avg_saves),
+        })),
+        topCities: (demographicsByType.city ?? []).slice(0, 8).map((row) => ({
+          label: row.key,
+          value: toNumber(row.value),
+        })),
+        audience: {
+          age: (demographicsByType.age ?? []).map((row) => ({
+            label: row.key,
+            value: toNumber(row.value),
+          })),
+          country: (demographicsByType.country ?? []).map((row) => ({
+            label: row.key,
+            value: toNumber(row.value),
+          })),
+          gender: (demographicsByType.gender ?? []).map((row) => ({
+            label: row.key,
+            value: toNumber(row.value),
+          })),
+        },
         groups: [
           {
             title: "Recent post performance",

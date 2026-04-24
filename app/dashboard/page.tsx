@@ -2,10 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   Line,
   LineChart,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -54,11 +59,29 @@ type InsightGroup = {
   items: InsightItem[];
 };
 
+type BreakdownDatum = {
+  label: string;
+  value: number;
+};
+
+type ContentMixDatum = BreakdownDatum & {
+  avgEngagement: number;
+  avgShares: number;
+  avgSaves: number;
+};
+
+type AudienceBreakdown = {
+  age: BreakdownDatum[];
+  country: BreakdownDatum[];
+  gender: BreakdownDatum[];
+};
+
 type TopPost = {
   id: string;
   createdAt: string | null;
   title: string;
   imageUrl: string | null;
+  mediaType?: string | null;
   permalink: string | null;
   likes: number;
   comments: number;
@@ -83,6 +106,9 @@ type PlatformDetails = {
   stats: InsightItem[];
   groups: InsightGroup[];
   topPosts: TopPost[];
+  contentMix?: ContentMixDatum[];
+  topCities?: BreakdownDatum[];
+  audience?: AudienceBreakdown;
 };
 
 type DashboardPayload = {
@@ -102,6 +128,33 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   facebook: "Facebook",
   instagram: "Instagram",
   tiktok: "TikTok",
+};
+
+const MIX_COLORS = ["#ff6b35", "#f59e0b", "#ec4899", "#8b5cf6", "#3b82f6", "#14b8a6"];
+
+const TEXAS_CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  arlington: { lat: 32.7357, lng: -97.1081 },
+  austin: { lat: 30.2672, lng: -97.7431 },
+  dallas: { lat: 32.7767, lng: -96.797 },
+  fate: { lat: 32.9407, lng: -96.3819 },
+  forney: { lat: 32.7482, lng: -96.4719 },
+  frisco: { lat: 33.1507, lng: -96.8236 },
+  garland: { lat: 32.9126, lng: -96.6389 },
+  heath: { lat: 32.8365, lng: -96.4744 },
+  houston: { lat: 29.7604, lng: -95.3698 },
+  irving: { lat: 32.814, lng: -96.9489 },
+  mckinney: { lat: 33.1976, lng: -96.6153 },
+  mesquite: { lat: 32.7668, lng: -96.5992 },
+  "mclendon-chisholm": { lat: 32.844, lng: -96.3922 },
+  plano: { lat: 33.0198, lng: -96.6989 },
+  richardson: { lat: 32.9483, lng: -96.7299 },
+  rockwall: { lat: 32.9312, lng: -96.4597 },
+  royse: { lat: 32.9752, lng: -96.3325 },
+  "royse city": { lat: 32.9752, lng: -96.3325 },
+  rowlett: { lat: 32.9029, lng: -96.5639 },
+  "san antonio": { lat: 29.4241, lng: -98.4936 },
+  terrell: { lat: 32.7357, lng: -96.2753 },
+  wylie: { lat: 33.0151, lng: -96.5389 },
 };
 
 function formatCompactNumber(value: number) {
@@ -131,6 +184,10 @@ function formatValue(value: number | string) {
   return typeof value === "number" ? formatCompactNumber(value) : value;
 }
 
+function formatPercent(value: number) {
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
 function formatShortDate(value: string) {
   return new Date(`${value}T12:00:00`).toLocaleDateString("en-US", {
     month: "short",
@@ -149,6 +206,11 @@ function formatDateTime(value: string | null) {
   });
 }
 
+function normalizeMediaType(value: string | null | undefined) {
+  if (!value) return "Post";
+  return value.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 function renderSecondaryMetric(platform: Platform, post: TopPost) {
   if (platform === "instagram") {
     return `${formatCompactNumber(post.saves)} saves`;
@@ -159,6 +221,102 @@ function renderSecondaryMetric(platform: Platform, post: TopPost) {
   }
 
   return `${formatCompactNumber(post.views)} views`;
+}
+
+function getNumericDomain(values: number[], includeZero: boolean): [number, number] {
+  const safeValues = values.filter((value) => Number.isFinite(value));
+
+  if (safeValues.length === 0) {
+    return [0, 10];
+  }
+
+  const min = Math.min(...safeValues);
+  const max = Math.max(...safeValues);
+
+  if (includeZero) {
+    return [0, Math.max(max * 1.08, 10)];
+  }
+
+  if (min === max) {
+    const padding = Math.max(Math.abs(min) * 0.08, 5);
+    return [Math.max(0, min - padding), max + padding];
+  }
+
+  const span = max - min;
+  const padding = Math.max(span * 0.12, 2);
+
+  return [Math.max(0, min - padding), max + padding];
+}
+
+function getCityCoordinates(label: string) {
+  const city = label.split(",")[0]?.trim().toLowerCase() ?? "";
+  return TEXAS_CITY_COORDS[city] ?? null;
+}
+
+function buildPercentageRows(items: BreakdownDatum[]) {
+  const total = items.reduce((sum, item) => sum + item.value, 0);
+
+  return items
+    .filter((item) => item.value > 0)
+    .map((item) => ({
+      ...item,
+      percent: total > 0 ? (item.value / total) * 100 : 0,
+    }))
+    .sort((a, b) => b.percent - a.percent);
+}
+
+function AxisToggle({
+  includeZero,
+  onChange,
+}: {
+  includeZero: boolean;
+  onChange: (nextValue: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        gap: 4,
+        padding: 4,
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => onChange(true)}
+        style={{
+          padding: "7px 11px",
+          borderRadius: 999,
+          border: "none",
+          background: includeZero ? "var(--accent)" : "transparent",
+          color: includeZero ? "#fff" : "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
+        Include 0
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange(false)}
+        style={{
+          padding: "7px 11px",
+          borderRadius: 999,
+          border: "none",
+          background: !includeZero ? "rgba(255,255,255,0.08)" : "transparent",
+          color: !includeZero ? "#fff" : "var(--text-muted)",
+          cursor: "pointer",
+          fontSize: 12,
+          fontWeight: 700,
+        }}
+      >
+        Zoom
+      </button>
+    </div>
+  );
 }
 
 function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
@@ -185,11 +343,23 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
   );
 }
 
-function SummaryTile({ summary }: { summary: Summary }) {
+function SummaryTile({
+  summary,
+  onSelect,
+}: {
+  summary: Summary;
+  onSelect?: (platform: Platform) => void;
+}) {
   const color = PLATFORM_COLORS[summary.platform];
+  const sharedStyle = {
+    padding: 22,
+    cursor: onSelect ? "pointer" : "default",
+    textAlign: "left" as const,
+    width: "100%",
+  };
 
-  return (
-    <div className="card" style={{ padding: 22 }}>
+  const content = (
+    <>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
         <div
           style={{
@@ -206,7 +376,15 @@ function SummaryTile({ summary }: { summary: Summary }) {
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 16,
+          alignItems: "end",
+          marginBottom: 12,
+        }}
+      >
         <div>
           <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>
             {formatCompactNumber(summary.latestFollowers)}
@@ -223,9 +401,19 @@ function SummaryTile({ summary }: { summary: Summary }) {
 
       <MiniSparkline data={summary.performanceTrend} color={color} />
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 12, alignItems: "end", marginTop: 12 }}>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr auto",
+          gap: 12,
+          alignItems: "end",
+          marginTop: 12,
+        }}
+      >
         <div>
-          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>{summary.performanceLabel}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 4 }}>
+            {summary.performanceLabel}
+          </div>
           <div style={{ fontWeight: 700, fontSize: 18 }}>{formatCompactNumber(summary.performanceLatest)}</div>
         </div>
         <div style={{ textAlign: "right" }}>
@@ -235,75 +423,132 @@ function SummaryTile({ summary }: { summary: Summary }) {
           <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{summary.performanceNote}</div>
         </div>
       </div>
+    </>
+  );
+
+  if (!onSelect) {
+    return (
+      <div className="card" style={sharedStyle}>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className="card"
+      type="button"
+      onClick={() => onSelect(summary.platform)}
+      style={{
+        ...sharedStyle,
+        border: "1px solid rgba(255,255,255,0.06)",
+        background: "var(--bg-card)",
+      }}
+    >
+      {content}
+    </button>
+  );
+}
+
+function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
+  const [includeZero, setIncludeZero] = useState(true);
+  const yDomain = useMemo(
+    () =>
+      getNumericDomain(
+        data.flatMap((point) => [point.facebook, point.instagram, point.tiktok].filter((value): value is number => value !== null)),
+        includeZero
+      ),
+    [data, includeZero]
+  );
+
+  return (
+    <div className="card" style={{ padding: 24, marginBottom: 24 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>Daily followers by platform</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
+            Cross-platform follower history. TikTok is still on sparse account-history snapshots.
+          </p>
+        </div>
+        <AxisToggle includeZero={includeZero} onChange={setIncludeZero} />
+      </div>
+
+      <ResponsiveContainer width="100%" height={320}>
+        <LineChart data={data} margin={{ left: 8, right: 18, top: 12, bottom: 0 }}>
+          <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="day"
+            tickFormatter={formatShortDate}
+            stroke="var(--text-muted)"
+            tick={{ fontSize: 12 }}
+            minTickGap={24}
+          />
+          <YAxis
+            domain={yDomain}
+            stroke="var(--text-muted)"
+            tick={{ fontSize: 12 }}
+            tickFormatter={(value: number) => formatCompactNumber(value)}
+            width={64}
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              borderRadius: 10,
+            }}
+            labelFormatter={(label) => formatShortDate(String(label))}
+            formatter={(value, name) => {
+              const key = String(name) as Platform;
+              return [formatCompactNumber(Number(value ?? 0)), PLATFORM_LABELS[key] ?? String(name)];
+            }}
+          />
+          <Legend />
+          {(Object.keys(PLATFORM_COLORS) as Platform[]).map((platform) => (
+            <Line
+              key={platform}
+              type="monotone"
+              dataKey={platform}
+              stroke={PLATFORM_COLORS[platform]}
+              strokeWidth={3}
+              dot={{ r: 2 }}
+              activeDot={{ r: 5 }}
+              connectNulls
+              name={PLATFORM_LABELS[platform]}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
-function MultiPlatformFollowersChart({ data }: { data: TrendPoint[] }) {
-  return (
-    <ResponsiveContainer width="100%" height={320}>
-      <LineChart data={data} margin={{ left: 8, right: 18, top: 12, bottom: 0 }}>
-        <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-        <XAxis
-          dataKey="day"
-          tickFormatter={formatShortDate}
-          stroke="var(--text-muted)"
-          tick={{ fontSize: 12 }}
-          minTickGap={24}
-        />
-        <YAxis
-          stroke="var(--text-muted)"
-          tick={{ fontSize: 12 }}
-          tickFormatter={(value: number) => formatCompactNumber(value)}
-          width={64}
-        />
-        <Tooltip
-          contentStyle={{
-            background: "var(--bg-card)",
-            border: "1px solid var(--border)",
-            borderRadius: 10,
-          }}
-          labelFormatter={(label) => formatShortDate(String(label))}
-          formatter={(value, name) => {
-            const key = String(name) as Platform;
-            return [formatCompactNumber(Number(value ?? 0)), PLATFORM_LABELS[key] ?? String(name)];
-          }}
-        />
-        <Legend />
-        {(Object.keys(PLATFORM_COLORS) as Platform[]).map((platform) => (
-          <Line
-            key={platform}
-            type="monotone"
-            dataKey={platform}
-            stroke={PLATFORM_COLORS[platform]}
-            strokeWidth={3}
-            dot={{ r: 2 }}
-            activeDot={{ r: 5 }}
-            connectNulls
-            name={PLATFORM_LABELS[platform]}
-          />
-        ))}
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
-function SingleSeriesChart({
+function TrendCard({
   title,
   note,
   series,
   color,
+  allowZeroToggle = false,
 }: {
   title: string;
   note?: string;
   series: DataPoint[];
   color: string;
+  allowZeroToggle?: boolean;
 }) {
+  const [includeZero, setIncludeZero] = useState(true);
+  const yDomain = useMemo(
+    () => getNumericDomain(series.map((point) => point.value), allowZeroToggle ? includeZero : true),
+    [allowZeroToggle, includeZero, series]
+  );
+
   return (
     <div className="card" style={{ padding: 22 }}>
-      <div style={{ marginBottom: 14 }}>
-        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
-        {note ? <p style={{ color: "var(--text-muted)", fontSize: 13 }}>{note}</p> : null}
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 14 }}>
+        <div>
+          <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>{title}</h3>
+          {note ? <p style={{ color: "var(--text-muted)", fontSize: 13 }}>{note}</p> : null}
+        </div>
+        {allowZeroToggle ? <AxisToggle includeZero={includeZero} onChange={setIncludeZero} /> : null}
       </div>
 
       <ResponsiveContainer width="100%" height={260}>
@@ -317,6 +562,7 @@ function SingleSeriesChart({
             minTickGap={24}
           />
           <YAxis
+            domain={yDomain}
             stroke="var(--text-muted)"
             tick={{ fontSize: 12 }}
             tickFormatter={(value: number) => formatCompactNumber(value)}
@@ -421,16 +667,54 @@ function InsightGroups({ groups }: { groups: InsightGroup[] }) {
   );
 }
 
+function PostThumbnail({ post, platform }: { post: TopPost; platform: Platform }) {
+  const [failed, setFailed] = useState(false);
+  const showImage = Boolean(post.imageUrl) && !failed;
+
+  if (showImage) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={post.imageUrl ?? undefined}
+        alt={post.title}
+        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        onError={() => setFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        background:
+          platform === "instagram"
+            ? "linear-gradient(160deg, rgba(225,48,108,0.30), rgba(255,107,53,0.18))"
+            : platform === "facebook"
+              ? "linear-gradient(160deg, rgba(24,119,242,0.28), rgba(24,119,242,0.10))"
+              : "linear-gradient(160deg, rgba(255,107,53,0.26), rgba(255,107,53,0.10))",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        justifyContent: "space-between",
+        padding: 12,
+      }}
+    >
+      <span style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "rgba(255,255,255,0.7)" }}>
+        {PLATFORM_LABELS[platform]}
+      </span>
+      <span style={{ fontSize: 12, fontWeight: 700 }}>{normalizeMediaType(post.mediaType)}</span>
+    </div>
+  );
+}
+
 function TopPostsSection({ detail }: { detail: PlatformDetails }) {
   return (
     <div className="card" style={{ padding: 22 }}>
       <div style={{ marginBottom: 16 }}>
-        <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
-          Top {detail.label} posts
-        </h3>
-        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>
-          Ranked by {detail.metricLabel}
-        </p>
+        <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Top {detail.label} posts</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Ranked by {detail.metricLabel}</p>
       </div>
 
       <div style={{ display: "grid", gap: 14 }}>
@@ -454,24 +738,10 @@ function TopPostsSection({ detail }: { detail: PlatformDetails }) {
                 borderRadius: 14,
                 overflow: "hidden",
                 background: "rgba(255,255,255,0.05)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
                 color: "var(--text-muted)",
-                fontSize: 12,
-                textTransform: "uppercase",
               }}
             >
-              {post.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={post.imageUrl}
-                  alt={post.title}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                />
-              ) : (
-                detail.label
-              )}
+              <PostThumbnail post={post} platform={detail.platform} />
             </div>
 
             <div style={{ minWidth: 0 }}>
@@ -492,14 +762,7 @@ function TopPostsSection({ detail }: { detail: PlatformDetails }) {
                 {post.title}
               </div>
 
-              <div
-                style={{
-                  display: "flex",
-                  flexWrap: "wrap",
-                  gap: 8,
-                  marginBottom: 10,
-                }}
-              >
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
                 <div className="pill">{formatCompactNumber(post.engagementScore)} engagements</div>
                 <div className="pill">{formatCompactNumber(post.likes)} likes</div>
                 <div className="pill">{formatCompactNumber(post.comments)} comments</div>
@@ -534,6 +797,265 @@ function TopPostsSection({ detail }: { detail: PlatformDetails }) {
   );
 }
 
+function InstagramContentMixCard({ data }: { data: ContentMixDatum[] }) {
+  if (data.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="card" style={{ padding: 20 }}>
+      <div style={{ marginBottom: 14 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Content mix</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Post volume by media type, with engagement context.</p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(220px, 280px) 1fr", gap: 18, alignItems: "center" }}>
+        <div style={{ width: "100%", height: 240 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="label"
+                innerRadius={64}
+                outerRadius={92}
+                paddingAngle={3}
+                stroke="none"
+              >
+                {data.map((entry, index) => (
+                  <Cell key={entry.label} fill={MIX_COLORS[index % MIX_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                }}
+                formatter={(value, name) => [formatCompactNumber(Number(value ?? 0)), String(name)]}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={{ display: "grid", gap: 12 }}>
+          {data.map((item, index) => (
+            <div
+              key={item.label}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr auto",
+                gap: 10,
+                alignItems: "start",
+                paddingBottom: 10,
+                borderBottom: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <div
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: "999px",
+                  marginTop: 5,
+                  background: MIX_COLORS[index % MIX_COLORS.length],
+                }}
+              />
+              <div>
+                <div style={{ fontWeight: 700 }}>{normalizeMediaType(item.label)}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                  {formatCompactNumber(item.avgEngagement)} avg engagements · {formatCompactNumber(item.avgSaves)} saves
+                </div>
+              </div>
+              <div style={{ fontWeight: 700, color: "var(--accent)" }}>{formatCompactNumber(item.value)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TexasAudienceMap({ cities }: { cities: BreakdownDatum[] }) {
+  const mappedCities = cities
+    .map((city) => {
+      const coords = getCityCoordinates(city.label);
+      if (!coords) return null;
+
+      const x = ((coords.lng + 106.7) / 13.2) * 320;
+      const y = (1 - (coords.lat - 25.8) / 10.7) * 240;
+
+      return {
+        ...city,
+        x,
+        y,
+      };
+    })
+    .filter((city): city is BreakdownDatum & { x: number; y: number } => city !== null);
+
+  const maxValue = Math.max(...cities.map((city) => city.value), 1);
+
+  return (
+    <svg viewBox="0 0 320 240" style={{ width: "100%", height: "100%" }} aria-label="Texas city audience map">
+      <path
+        d="M57 26 L116 29 L126 42 L158 46 L214 46 L219 94 L253 109 L241 143 L255 169 L233 201 L198 190 L156 199 L108 183 L92 169 L61 166 L49 130 L54 108 L39 81 Z"
+        fill="rgba(255,255,255,0.03)"
+        stroke="rgba(255,255,255,0.1)"
+        strokeWidth="2"
+      />
+      {mappedCities.map((city) => {
+        const radius = 5 + (city.value / maxValue) * 12;
+
+        return (
+          <g key={city.label}>
+            <circle cx={city.x} cy={city.y} r={radius + 4} fill="rgba(255,107,53,0.12)" />
+            <circle cx={city.x} cy={city.y} r={radius} fill="rgba(255,107,53,0.85)" stroke="#fff" strokeWidth="1.5" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function InstagramCitiesCard({ cities }: { cities: BreakdownDatum[] }) {
+  if (cities.length === 0) {
+    return null;
+  }
+
+  const chartData = cities.slice(0, 6).map((city) => ({
+    ...city,
+    shortLabel: city.label.replace(", Texas", ""),
+  }));
+
+  return (
+    <div className="card" style={{ padding: 20 }}>
+      <div style={{ marginBottom: 14 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Top cities</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Latest demographic snapshot, mapped into Texas where we have city coordinates.</p>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(240px, 1fr) minmax(260px, 1.2fr)", gap: 18, alignItems: "center" }}>
+        <div style={{ width: "100%", height: 240 }}>
+          <TexasAudienceMap cities={cities} />
+        </div>
+
+        <div style={{ width: "100%", height: 240 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} layout="vertical" margin={{ top: 8, right: 12, left: 6, bottom: 8 }}>
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" horizontal={false} />
+              <XAxis
+                type="number"
+                stroke="var(--text-muted)"
+                tick={{ fontSize: 12 }}
+                tickFormatter={(value: number) => formatCompactNumber(value)}
+              />
+              <YAxis
+                type="category"
+                dataKey="shortLabel"
+                stroke="var(--text-muted)"
+                tick={{ fontSize: 12 }}
+                width={96}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                }}
+                formatter={(value) => formatCompactNumber(Number(value ?? 0))}
+              />
+              <Bar dataKey="value" radius={[0, 8, 8, 0]} fill="var(--accent)" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PercentageBarList({
+  title,
+  items,
+  color,
+}: {
+  title: string;
+  items: BreakdownDatum[];
+  color: string;
+}) {
+  const rows = buildPercentageRows(items);
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={{ display: "grid", gap: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+        {title}
+      </div>
+      {rows.map((row) => (
+        <div key={`${title}-${row.label}`} style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+            <span>{row.label}</span>
+            <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatPercent(row.percent)}</span>
+          </div>
+          <div
+            style={{
+              width: "100%",
+              height: 10,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.05)",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                width: `${Math.max(row.percent, 2)}%`,
+                height: "100%",
+                borderRadius: 999,
+                background: color,
+              }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function InstagramAudienceCard({ audience }: { audience: AudienceBreakdown }) {
+  return (
+    <div className="card" style={{ padding: 20 }}>
+      <div style={{ marginBottom: 14 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Audience profile</h3>
+        <p style={{ color: "var(--text-muted)", fontSize: 13 }}>Percent split within each audience bucket instead of raw counts.</p>
+      </div>
+
+      <div style={{ display: "grid", gap: 18 }}>
+        <PercentageBarList title="Age" items={audience.age} color="#ff6b35" />
+        <PercentageBarList title="Country" items={audience.country} color="#f59e0b" />
+        <PercentageBarList title="Gender" items={audience.gender} color="#ec4899" />
+      </div>
+    </div>
+  );
+}
+
+function InstagramInsights({ detail }: { detail: PlatformDetails }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+        gap: 16,
+        marginBottom: 20,
+      }}
+    >
+      <InstagramContentMixCard data={detail.contentMix ?? []} />
+      <InstagramCitiesCard cities={detail.topCities ?? []} />
+      {detail.audience ? <InstagramAudienceCard audience={detail.audience} /> : null}
+    </div>
+  );
+}
+
 function PlatformSection({ detail }: { detail: PlatformDetails }) {
   const color = PLATFORM_COLORS[detail.platform];
 
@@ -564,13 +1086,14 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
           marginBottom: 16,
         }}
       >
-        <SingleSeriesChart
+        <TrendCard
           title="Follower trend"
           note="Daily tracked followers."
           series={detail.followersTrend}
           color={color}
+          allowZeroToggle
         />
-        <SingleSeriesChart
+        <TrendCard
           title={detail.performanceLabel}
           note={detail.performanceNote}
           series={detail.performanceTrend}
@@ -578,15 +1101,18 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
         />
       </div>
 
-      <div style={{ marginBottom: 16 }}>
-        <SingleSeriesChart
-          title={detail.secondaryLabel}
-          series={detail.secondaryTrend}
-          color={color}
-        />
-      </div>
+      {detail.platform !== "instagram" ? (
+        <div style={{ marginBottom: 16 }}>
+          <TrendCard title={detail.secondaryLabel} series={detail.secondaryTrend} color={color} />
+        </div>
+      ) : null}
 
-      <InsightGroups groups={detail.groups} />
+      {detail.platform === "instagram" ? (
+        <InstagramInsights detail={detail} />
+      ) : (
+        <InsightGroups groups={detail.groups} />
+      )}
+
       <TopPostsSection detail={detail} />
     </section>
   );
@@ -695,7 +1221,7 @@ export default function DashboardPage() {
             Followers, reach, and platform breakdowns
           </h1>
           <p style={{ color: "var(--text-muted)", fontSize: 16, lineHeight: 1.6, maxWidth: 820 }}>
-            Tabs split the view into All Platforms, Facebook, Instagram, and TikTok. Summary tiles now include daily performance sparklines pulled from the tracked history tables.
+            Platform tabs now hold the deep dives. Instagram has dedicated audience visuals instead of the generic insight cards.
           </p>
         </div>
 
@@ -743,28 +1269,11 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} />
             ))}
           </div>
 
-          <div className="card" style={{ padding: 24, marginBottom: 24 }}>
-            <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", gap: 12, marginBottom: 18 }}>
-              <div>
-                <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 6 }}>Daily followers by platform</h2>
-                <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-                  Cross-platform follower history. TikTok is still on sparse account-history snapshots.
-                </p>
-              </div>
-              <div className="pill">{data.trend.length} tracked days</div>
-            </div>
-            <MultiPlatformFollowersChart data={data.trend} />
-          </div>
-
-          <div style={{ display: "grid", gap: 20 }}>
-            {(Object.keys(data.platforms) as Platform[]).map((platform) => (
-              <PlatformSection key={platform} detail={data.platforms[platform]} />
-            ))}
-          </div>
+          <FollowersOverviewCard data={data.trend} />
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
