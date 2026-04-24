@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
             is_active: true,
           }, { onConflict: "user_id,platform,platform_account_id" });
         }
-      } catch (_) { /* No IG account linked — skip */ }
+      } catch { /* No IG account linked — skip */ }
     }
 
     return NextResponse.redirect(`${appUrl}/connect?success=meta`);
