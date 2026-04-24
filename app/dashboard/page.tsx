@@ -973,25 +973,18 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
   );
 }
 // ---- Top Posts by Platform ----
-function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: number }) {
+function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: DashboardPayload; days?: number; metric?: MetricKey }) {
   const allPlatforms: Platform[] = ["facebook", "instagram", "tiktok"];
   const [active, setActive] = useState<Platform[]>(["facebook", "instagram", "tiktok"]);
-  const [sortBy, setSortBy] = useState("date");
+  const [sortBy, setSortBy] = useState<string>(metric);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [hovered, setHovered] = useState<{ platform: Platform; postId: string; x: number; y: number } | null>(null);
+  const [hovered, setHovered] = useState<{ platform: Platform; postId: string; col: string; x: number; y: number } | null>(null);
 
-  const platformAvg = useMemo(() => {
-    const result = {} as Record<Platform, { avgLikes: number; avgComments: number; avgShares: number }>;
-    allPlatforms.forEach((p) => {
-      const posts = filterPostDays(data.platforms[p].topPosts, days);
-      result[p] = {
-        avgLikes: posts.length ? Math.round(posts.reduce((s, post) => s + post.likes, 0) / posts.length) : 0,
-        avgComments: posts.length ? Math.round(posts.reduce((s, post) => s + post.comments, 0) / posts.length) : 0,
-        avgShares: posts.length ? Math.round(posts.reduce((s, post) => s + post.shares, 0) / posts.length) : 0,
-      };
-    });
-    return result;
-  }, [data]);
+  // Sync sortBy when global metric changes
+  useEffect(() => {
+    setSortBy(metric);
+    setSortDir("desc");
+  }, [metric]);
 
   const secondaryVal = (platform: Platform, post: TopPost) =>
     platform === "instagram" ? post.saves : platform === "facebook" ? post.impressions : post.views;
@@ -1018,16 +1011,35 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
       } else if (sortBy === "secondary") {
         av = secondaryVal(a.platform, a);
         bv = secondaryVal(b.platform, b);
+      } else if (sortBy === "reach" || sortBy === "followers") {
+        av = a.likes + a.comments + a.shares;
+        bv = b.likes + b.comments + b.shares;
       }
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return combined;
-  }, [data, active, sortBy, sortDir]);
+  }, [data, active, sortBy, sortDir, days]);
 
-  const hoveredPost = useMemo(
-    () => (hovered ? data.platforms[hovered.platform].topPosts.find((p) => p.id === hovered.postId) ?? null : null),
-    [hovered, data]
-  );
+  // Build per-day data for a given post + column metric
+  const hoveredDailyData = useMemo(() => {
+    if (!hovered) return [];
+    const drivers = (data.platforms[hovered.platform].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+    const col = hovered.col;
+    const points: { day: string; value: number }[] = [];
+    Object.entries(drivers).forEach(([day, posts]) => {
+      const post = posts.find((p) => p.id === hovered.postId);
+      if (!post) return;
+      let val = 0;
+      if (col === "likes") val = post.likes;
+      else if (col === "comments") val = post.comments;
+      else if (col === "shares") val = post.shares;
+      else if (col === "secondary") val = secondaryVal(hovered.platform, post);
+      else val = post.likes + post.comments + post.shares;
+      points.push({ day, value: val });
+    });
+    points.sort((a, b) => a.day.localeCompare(b.day));
+    return points;
+  }, [hovered, data]);
 
   const togglePlatform = (p: Platform) => {
     setActive((prev) => {
@@ -1064,11 +1076,15 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
     userSelect: "none" as const,
   });
 
+  const colLabel: { [k: string]: string } = {
+    likes: "Likes", comments: "Comments", shares: "Shares", secondary: "Views/Saves/Impr.",
+  };
+
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posts by Platform</h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-        Hover a row to compare vs. platform average. Click headers to sort.
+        Sorted by active metric. Hover any metric cell for daily breakdown. Click headers to re-sort.
       </p>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -1088,7 +1104,7 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
               fontWeight: 700,
             }}
           >
-            {PLATFORM_LABELS[p]} ({data.platforms[p].topPosts.length})
+            {PLATFORM_LABELS[p]}
           </button>
         ))}
         <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)", alignSelf: "center" }}>
@@ -1114,16 +1130,8 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
               return (
                 <tr
                   key={post.platform + "-" + post.id}
-                  onMouseEnter={(e) => {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setHovered({ platform: post.platform, postId: post.id, x: rect.left, y: rect.bottom });
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.04)";
-                  }}
-                  onMouseLeave={(e) => {
-                    setHovered(null);
-                    (e.currentTarget as HTMLElement).style.background = "";
-                  }}
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "pointer" }}
+                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)", cursor: "default" }}
+                  onMouseLeave={() => setHovered(null)}
                 >
                   <td style={{ padding: "8px 8px", maxWidth: 280 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1139,12 +1147,30 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
                   <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 12 }}>
                     {post.createdAt ? post.createdAt.slice(0, 10) : "—"}
                   </td>
-                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.likes)}</td>
-                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.comments)}</td>
-                  <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 600 }}>{formatCompactNumber(post.shares)}</td>
-                  <td style={{ padding: "8px 8px", textAlign: "right", color: "var(--text-muted)" }}>
-                    {formatCompactNumber(secondaryVal(post.platform, post))}
-                  </td>
+                  {(["likes", "comments", "shares", "secondary"] as string[]).map((col) => {
+                    const val = col === "likes" ? post.likes : col === "comments" ? post.comments : col === "shares" ? post.shares : secondaryVal(post.platform, post);
+                    const isHov = hovered?.postId === post.id && hovered?.platform === post.platform && hovered?.col === col;
+                    return (
+                      <td
+                        key={col}
+                        onMouseEnter={(e) => {
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setHovered({ platform: post.platform, postId: post.id, col, x: rect.left, y: rect.bottom });
+                        }}
+                        style={{
+                          padding: "8px 8px",
+                          textAlign: "right",
+                          fontWeight: 600,
+                          background: isHov ? "rgba(255,107,53,0.12)" : undefined,
+                          color: col === "secondary" ? "var(--text-muted)" : undefined,
+                          cursor: "crosshair",
+                          transition: "background 0.1s",
+                        }}
+                      >
+                        {formatCompactNumber(val)}
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}
@@ -1157,13 +1183,13 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
         </table>
       </div>
 
-      {hoveredPost && hovered && (
+      {hovered && hoveredDailyData.length > 0 && (
         <div
           style={{
             position: "fixed",
-            left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 280),
+            left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 300),
             top: hovered.y + 8,
-            width: 260,
+            width: 280,
             background: "#111",
             border: "1px solid var(--border)",
             borderRadius: 10,
@@ -1173,27 +1199,28 @@ function AllTopPostsCard({ data, days = 365 }: { data: DashboardPayload; days?: 
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
           }}
         >
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>vs. platform average</div>
-          <ResponsiveContainer width="100%" height={100}>
-            <BarChart
-              layout="vertical"
-              data={[
-                { metric: "Likes", post: hoveredPost.likes, avg: platformAvg[hovered.platform].avgLikes },
-                { metric: "Comments", post: hoveredPost.comments, avg: platformAvg[hovered.platform].avgComments },
-                { metric: "Shares", post: hoveredPost.shares, avg: platformAvg[hovered.platform].avgShares },
-              ]}
-              margin={{ left: 56, right: 8, top: 0, bottom: 0 }}
-            >
-              <XAxis type="number" hide />
-              <YAxis type="category" dataKey="metric" tick={{ fontSize: 11, fill: "var(--text-muted)" }} axisLine={false} tickLine={false} width={56} />
-              <Bar dataKey="post" fill={PLATFORM_COLORS[hovered.platform]} radius={[0, 2, 2, 0]} name="This post" />
-              <Bar dataKey="avg" fill="rgba(255,255,255,0.15)" radius={[0, 2, 2, 0]} name="Avg" />
-            </BarChart>
-          </ResponsiveContainer>
-          <div style={{ display: "flex", gap: 12, marginTop: 6, fontSize: 10, color: "var(--text-muted)" }}>
-            <span><span style={{ background: PLATFORM_COLORS[hovered.platform], borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />This post</span>
-            <span><span style={{ background: "rgba(255,255,255,0.15)", borderRadius: 2, display: "inline-block", width: 8, height: 8, marginRight: 4 }} />Avg</span>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 8 }}>
+            {colLabel[hovered.col] ?? hovered.col} by day
           </div>
+          <ResponsiveContainer width="100%" height={100}>
+            <LineChart data={hoveredDailyData} margin={{ left: 0, right: 8, top: 4, bottom: 0 }}>
+              <XAxis dataKey="day" hide />
+              <YAxis hide />
+              <Tooltip
+                contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
+                formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
+                labelFormatter={(l: string) => l}
+              />
+              <Line
+                type="monotone"
+                dataKey="value"
+                stroke={PLATFORM_COLORS[hovered.platform]}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 3 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>
@@ -2101,7 +2128,7 @@ export default function DashboardPage() {
             <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} />
           </div>
           <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} />
-          <AllTopPostsCard data={data} days={globalDays} />
+          <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} />
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>

@@ -358,7 +358,6 @@ export async function GET() {
       left join metric_rollup m on m.post_id = fp.post_id
       where fp.account_id = '${BIG_SKY_IDS.facebook}'
       order by engagement_score desc, views desc, created_time desc
-      limit 5
     `;
 
     const facebookReachDriversSql = `
@@ -568,7 +567,6 @@ export async function GET() {
       left join metric_rollup m on m.media_id = im.media_id
       where im.account_id = '${BIG_SKY_IDS.instagram}'
       order by engagement_score desc, created_time desc
-      limit 5
     `;
 
     const instagramActivityDriversSql = `
@@ -737,7 +735,6 @@ export async function GET() {
       left join latest_snapshots ls on ls.video_id = tv.video_id
       where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
       order by engagement_score desc, views desc, create_time desc
-      limit 5
     `;
 
     const tiktokViewDriversSql = `
