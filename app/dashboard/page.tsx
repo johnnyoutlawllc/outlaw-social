@@ -281,6 +281,54 @@ function buildPercentageRows(items: BreakdownDatum[]) {
     .sort((a, b) => b.percent - a.percent);
 }
 
+function buildAttributedRows(total: number, posts: TopPost[]) {
+  if (total <= 0) {
+    return [];
+  }
+
+  const weightedPosts = posts.filter((post) => post.engagementScore > 0);
+
+  if (weightedPosts.length === 0) {
+    return [
+      {
+        id: "carryover",
+        title: "Other / carryover audience",
+        attributedValue: total,
+        post: null,
+      },
+    ];
+  }
+
+  const totalWeight = weightedPosts.reduce((sum, post) => sum + post.engagementScore, 0);
+  const seeded = weightedPosts.map((post) => {
+    const raw = (post.engagementScore / totalWeight) * total;
+    const floor = Math.floor(raw);
+
+    return {
+      id: post.id,
+      title: post.title,
+      attributedValue: floor,
+      fractionalRemainder: raw - floor,
+      post,
+    };
+  });
+
+  let remaining = total - seeded.reduce((sum, row) => sum + row.attributedValue, 0);
+
+  seeded
+    .slice()
+    .sort((a, b) => b.fractionalRemainder - a.fractionalRemainder)
+    .forEach((row) => {
+      if (remaining <= 0) return;
+      const target = seeded.find((candidate) => candidate.id === row.id);
+      if (!target) return;
+      target.attributedValue += 1;
+      remaining -= 1;
+    });
+
+  return seeded.sort((a, b) => b.attributedValue - a.attributedValue);
+}
+
 function ActivityTooltip({
   active,
   payload,
@@ -301,6 +349,7 @@ function ActivityTooltip({
   const day = String(label);
   const value = Number(payload[0]?.value ?? 0);
   const drivers = driversByDay?.[day] ?? [];
+  const rows = buildAttributedRows(value, drivers);
 
   return (
     <div
@@ -327,14 +376,14 @@ function ActivityTooltip({
           marginBottom: 8,
         }}
       >
-        Posts driving activity
+        Allocation for chart value
       </div>
 
-      {drivers.length > 0 ? (
+      {rows.length > 0 ? (
         <div style={{ display: "grid", gap: 10 }}>
-          {drivers.slice(0, 5).map((post) => (
+          {rows.map((row) => (
             <div
-              key={`${day}-${post.id}`}
+              key={`${day}-${row.id}`}
               style={{
                 paddingTop: 10,
                 borderTop: "1px solid rgba(255,255,255,0.06)",
@@ -352,10 +401,13 @@ function ActivityTooltip({
                   overflow: "hidden",
                 }}
               >
-                {post.title}
+                {row.title}
               </div>
               <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
-                {formatCompactNumber(post.engagementScore)} moved / {formatCompactNumber(post.likes)} likes / {formatCompactNumber(post.comments)} comments / {formatCompactNumber(post.shares)} shares
+                {formatCompactNumber(row.attributedValue)} estimated from chart
+                {row.post
+                  ? ` / ${formatCompactNumber(row.post.engagementScore)} moved / ${formatCompactNumber(row.post.likes)} likes / ${formatCompactNumber(row.post.comments)} comments / ${formatCompactNumber(row.post.shares)} shares`
+                  : ""}
               </div>
             </div>
           ))}
@@ -586,6 +638,13 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
             stroke="var(--text-muted)"
             tick={{ fontSize: 12 }}
             minTickGap={24}
+            label={{
+              value: "Date",
+              position: "insideBottom",
+              offset: -2,
+              fill: "var(--text-muted)",
+              fontSize: 12,
+            }}
           />
           <YAxis
             domain={yDomain}
@@ -593,6 +652,14 @@ function FollowersOverviewCard({ data }: { data: TrendPoint[] }) {
             tick={{ fontSize: 12 }}
             tickFormatter={(value: number) => formatCompactNumber(value)}
             width={64}
+            label={{
+              value: "Followers",
+              angle: -90,
+              position: "insideLeft",
+              fill: "var(--text-muted)",
+              fontSize: 12,
+              dx: -8,
+            }}
           />
           <Tooltip
             contentStyle={{
@@ -634,6 +701,8 @@ function TrendCard({
   allowZeroToggle = false,
   driversByDay,
   valueLabel,
+  xAxisLabel = "Date",
+  yAxisLabel,
 }: {
   title: string;
   note?: string;
@@ -642,6 +711,8 @@ function TrendCard({
   allowZeroToggle?: boolean;
   driversByDay?: Record<string, TopPost[]>;
   valueLabel?: string;
+  xAxisLabel?: string;
+  yAxisLabel?: string;
 }) {
   const [includeZero, setIncludeZero] = useState(true);
   const yDomain = useMemo(
@@ -668,6 +739,13 @@ function TrendCard({
             stroke="var(--text-muted)"
             tick={{ fontSize: 12 }}
             minTickGap={24}
+            label={{
+              value: xAxisLabel,
+              position: "insideBottom",
+              offset: -2,
+              fill: "var(--text-muted)",
+              fontSize: 12,
+            }}
           />
           <YAxis
             domain={yDomain}
@@ -675,6 +753,14 @@ function TrendCard({
             tick={{ fontSize: 12 }}
             tickFormatter={(value: number) => formatCompactNumber(value)}
             width={64}
+            label={{
+              value: yAxisLabel ?? title,
+              angle: -90,
+              position: "insideLeft",
+              fill: "var(--text-muted)",
+              fontSize: 12,
+              dx: -8,
+            }}
           />
           <Tooltip
             content={
@@ -1304,6 +1390,7 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
           series={detail.followersTrend}
           color={color}
           allowZeroToggle
+          yAxisLabel="Followers"
         />
         <TrendCard
           title={detail.performanceLabel}
@@ -1312,12 +1399,18 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
           color={color}
           driversByDay={detail.activityDrivers}
           valueLabel={detail.performanceLabel}
+          yAxisLabel={detail.performanceLabel}
         />
       </div>
 
       {detail.platform !== "instagram" ? (
         <div style={{ marginBottom: 16 }}>
-          <TrendCard title={detail.secondaryLabel} series={detail.secondaryTrend} color={color} />
+          <TrendCard
+            title={detail.secondaryLabel}
+            series={detail.secondaryTrend}
+            color={color}
+            yAxisLabel={detail.secondaryLabel}
+          />
         </div>
       ) : null}
 
