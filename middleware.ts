@@ -1,6 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-import { isAllowedEmail } from "@/lib/allowed-users";
+
+const ALLOWED_EMAILS = new Set([
+  "johnnyoutlawllc@gmail.com",
+  "bigsky30media@gmail.com",
+]);
+
+function isAllowedEmail(email?: string | null) {
+  return !!email && ALLOWED_EMAILS.has(email.toLowerCase());
+}
 
 function isPublicPath(pathname: string) {
   return (
