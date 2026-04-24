@@ -108,6 +108,7 @@ type PlatformDetails = {
   topCities?: BreakdownDatum[];
   audience?: AudienceBreakdown;
   activityDrivers?: Record<string, TopPost[]>;
+  secondaryActivityDrivers?: Record<string, TopPost[]>;
 };
 
 type DashboardPayload = {
@@ -335,12 +336,14 @@ function ActivityTooltip({
   label,
   driversByDay,
   valueLabel,
+  signalLabel,
 }: {
   active?: boolean;
   payload?: Array<{ value?: number | string }>;
   label?: string | number;
   driversByDay?: Record<string, TopPost[]>;
   valueLabel: string;
+  signalLabel?: string;
 }) {
   if (!active || !payload?.length || label == null) {
     return null;
@@ -406,7 +409,7 @@ function ActivityTooltip({
               <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
                 {formatCompactNumber(row.attributedValue)} estimated from chart
                 {row.post
-                  ? ` / ${formatCompactNumber(row.post.engagementScore)} moved / ${formatCompactNumber(row.post.likes)} likes / ${formatCompactNumber(row.post.comments)} comments / ${formatCompactNumber(row.post.shares)} shares`
+                  ? ` / ${formatCompactNumber(row.post.engagementScore)} ${signalLabel ?? "signal"} / ${formatCompactNumber(row.post.likes)} likes / ${formatCompactNumber(row.post.comments)} comments / ${formatCompactNumber(row.post.shares)} shares`
                   : ""}
               </div>
             </div>
@@ -481,9 +484,21 @@ function MiniSparkline({ data, color }: { data: DataPoint[]; color: string }) {
   }
 
   return (
-    <div style={{ width: "100%", height: 56 }}>
+    <div style={{ width: "100%", height: 72 }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ left: 6, right: 6, top: 6, bottom: 8 }}>
+          <XAxis
+            dataKey="day"
+            tick={false}
+            tickLine={false}
+            axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+          />
+          <YAxis
+            tick={false}
+            tickLine={false}
+            axisLine={{ stroke: "rgba(255,255,255,0.08)" }}
+            width={10}
+          />
           <Line
             type="monotone"
             dataKey="value"
@@ -703,6 +718,7 @@ function TrendCard({
   valueLabel,
   xAxisLabel = "Date",
   yAxisLabel,
+  driverSignalLabel,
 }: {
   title: string;
   note?: string;
@@ -713,6 +729,7 @@ function TrendCard({
   valueLabel?: string;
   xAxisLabel?: string;
   yAxisLabel?: string;
+  driverSignalLabel?: string;
 }) {
   const [includeZero, setIncludeZero] = useState(true);
   const yDomain = useMemo(
@@ -772,6 +789,7 @@ function TrendCard({
                       label={label}
                       driversByDay={driversByDay}
                       valueLabel={valueLabel ?? title}
+                      signalLabel={driverSignalLabel}
                     />
                   )
                 : undefined
@@ -1400,6 +1418,13 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
           driversByDay={detail.activityDrivers}
           valueLabel={detail.performanceLabel}
           yAxisLabel={detail.performanceLabel}
+          driverSignalLabel={
+            detail.platform === "instagram"
+              ? "engagement movement"
+              : detail.platform === "facebook"
+                ? "post reach"
+                : "view delta"
+          }
         />
       </div>
 
@@ -1410,6 +1435,9 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
             series={detail.secondaryTrend}
             color={color}
             yAxisLabel={detail.secondaryLabel}
+            driversByDay={detail.secondaryActivityDrivers}
+            valueLabel={detail.secondaryLabel}
+            driverSignalLabel={detail.platform === "facebook" ? "reaction signal" : "like delta"}
           />
         </div>
       ) : null}

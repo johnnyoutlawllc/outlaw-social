@@ -361,6 +361,96 @@ export async function GET() {
       limit 5
     `;
 
+    const facebookReachDriversSql = `
+      with post_daily as (
+        select
+          fpm.post_id,
+          fpm.metric_date as activity_day,
+          max(case when fpm.metric_name = 'post_impressions_unique' then fpm.metric_value end) as reach,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.like' then fpm.metric_value end) as likes,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
+        from outlaw_data.facebook_post_metrics fpm
+        where fpm.account_id = '${BIG_SKY_IDS.facebook}'
+        group by 1, 2
+      ), deltas as (
+        select
+          post_id,
+          activity_day,
+          greatest(coalesce(reach, 0) - coalesce(lag(reach) over(partition by post_id order by activity_day), 0), 0) as daily_reach,
+          greatest(coalesce(likes, 0) - coalesce(lag(likes) over(partition by post_id order by activity_day), 0), 0) as daily_likes,
+          greatest(coalesce(comments, 0) - coalesce(lag(comments) over(partition by post_id order by activity_day), 0), 0) as daily_comments,
+          greatest(coalesce(shares, 0) - coalesce(lag(shares) over(partition by post_id order by activity_day), 0), 0) as daily_shares
+        from post_daily
+      )
+      select
+        d.activity_day,
+        fp.post_id as id,
+        fp.created_time,
+        left(coalesce(fp.message, ''), 160) as title,
+        fp.full_picture as image_url,
+        null::text as media_type,
+        null::text as permalink,
+        coalesce(d.daily_likes, 0) as likes,
+        coalesce(d.daily_comments, 0) as comments,
+        coalesce(d.daily_shares, 0) as shares,
+        0 as saves,
+        0 as views,
+        coalesce(d.daily_reach, 0) as impressions,
+        coalesce(d.daily_reach, 0) as engagement_score
+      from deltas d
+      join outlaw_data.facebook_posts fp on fp.post_id = d.post_id
+      where fp.account_id = '${BIG_SKY_IDS.facebook}'
+        and d.activity_day >= current_date - interval '180 days'
+        and coalesce(d.daily_reach, 0) > 0
+      order by d.activity_day desc, engagement_score desc, created_time desc
+    `;
+
+    const facebookReactionDriversSql = `
+      with post_daily as (
+        select
+          fpm.post_id,
+          fpm.metric_date as activity_day,
+          max(case when fpm.metric_name = 'post_impressions_unique' then fpm.metric_value end) as reach,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.like' then fpm.metric_value end) as likes,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
+          max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
+        from outlaw_data.facebook_post_metrics fpm
+        where fpm.account_id = '${BIG_SKY_IDS.facebook}'
+        group by 1, 2
+      ), deltas as (
+        select
+          post_id,
+          activity_day,
+          greatest(coalesce(reach, 0) - coalesce(lag(reach) over(partition by post_id order by activity_day), 0), 0) as daily_reach,
+          greatest(coalesce(likes, 0) - coalesce(lag(likes) over(partition by post_id order by activity_day), 0), 0) as daily_likes,
+          greatest(coalesce(comments, 0) - coalesce(lag(comments) over(partition by post_id order by activity_day), 0), 0) as daily_comments,
+          greatest(coalesce(shares, 0) - coalesce(lag(shares) over(partition by post_id order by activity_day), 0), 0) as daily_shares
+        from post_daily
+      )
+      select
+        d.activity_day,
+        fp.post_id as id,
+        fp.created_time,
+        left(coalesce(fp.message, ''), 160) as title,
+        fp.full_picture as image_url,
+        null::text as media_type,
+        null::text as permalink,
+        coalesce(d.daily_likes, 0) as likes,
+        coalesce(d.daily_comments, 0) as comments,
+        coalesce(d.daily_shares, 0) as shares,
+        0 as saves,
+        0 as views,
+        coalesce(d.daily_reach, 0) as impressions,
+        coalesce(d.daily_likes, 0) as engagement_score
+      from deltas d
+      join outlaw_data.facebook_posts fp on fp.post_id = d.post_id
+      where fp.account_id = '${BIG_SKY_IDS.facebook}'
+        and d.activity_day >= current_date - interval '180 days'
+        and coalesce(d.daily_likes, 0) > 0
+      order by d.activity_day desc, engagement_score desc, created_time desc
+    `;
+
     const instagramPerformanceSql = `
       select date(date) as day, max(value) as reach
       from outlaw_data.instagram_insights
@@ -650,12 +740,124 @@ export async function GET() {
       limit 5
     `;
 
+    const tiktokViewDriversSql = `
+      with latest_per_video_day as (
+        select
+          s.video_id,
+          date(s.snapshot_timestamp) as activity_day,
+          max(s.snapshot_timestamp) as latest_ts
+        from outlaw_data.tiktok_video_snapshots s
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        group by 1, 2
+      ), daily_snapshots as (
+        select
+          lp.activity_day,
+          s.video_id,
+          s.view_count,
+          s.like_count,
+          s.comment_count,
+          s.share_count
+        from latest_per_video_day lp
+        join outlaw_data.tiktok_video_snapshots s
+          on s.video_id = lp.video_id
+         and s.snapshot_timestamp = lp.latest_ts
+      ), deltas as (
+        select
+          ds.activity_day,
+          ds.video_id,
+          greatest(ds.view_count - coalesce(lag(ds.view_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_views,
+          greatest(ds.like_count - coalesce(lag(ds.like_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_likes,
+          greatest(ds.comment_count - coalesce(lag(ds.comment_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_comments,
+          greatest(ds.share_count - coalesce(lag(ds.share_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_shares
+        from daily_snapshots ds
+      )
+      select
+        d.activity_day,
+        tv.video_id as id,
+        tv.create_time,
+        left(coalesce(tv.title, tv.video_description, ''), 160) as title,
+        tv.cover_image_url as image_url,
+        null::text as media_type,
+        tv.share_url as permalink,
+        coalesce(d.daily_likes, 0) as likes,
+        coalesce(d.daily_comments, 0) as comments,
+        coalesce(d.daily_shares, 0) as shares,
+        0 as saves,
+        coalesce(d.daily_views, 0) as views,
+        0 as impressions,
+        coalesce(d.daily_views, 0) as engagement_score
+      from deltas d
+      join outlaw_data.tiktok_videos tv on tv.video_id = d.video_id
+      where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        and d.activity_day >= current_date - interval '180 days'
+        and coalesce(d.daily_views, 0) > 0
+      order by d.activity_day desc, engagement_score desc, create_time desc
+    `;
+
+    const tiktokLikeDriversSql = `
+      with latest_per_video_day as (
+        select
+          s.video_id,
+          date(s.snapshot_timestamp) as activity_day,
+          max(s.snapshot_timestamp) as latest_ts
+        from outlaw_data.tiktok_video_snapshots s
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        group by 1, 2
+      ), daily_snapshots as (
+        select
+          lp.activity_day,
+          s.video_id,
+          s.view_count,
+          s.like_count,
+          s.comment_count,
+          s.share_count
+        from latest_per_video_day lp
+        join outlaw_data.tiktok_video_snapshots s
+          on s.video_id = lp.video_id
+         and s.snapshot_timestamp = lp.latest_ts
+      ), deltas as (
+        select
+          ds.activity_day,
+          ds.video_id,
+          greatest(ds.view_count - coalesce(lag(ds.view_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_views,
+          greatest(ds.like_count - coalesce(lag(ds.like_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_likes,
+          greatest(ds.comment_count - coalesce(lag(ds.comment_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_comments,
+          greatest(ds.share_count - coalesce(lag(ds.share_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_shares
+        from daily_snapshots ds
+      )
+      select
+        d.activity_day,
+        tv.video_id as id,
+        tv.create_time,
+        left(coalesce(tv.title, tv.video_description, ''), 160) as title,
+        tv.cover_image_url as image_url,
+        null::text as media_type,
+        tv.share_url as permalink,
+        coalesce(d.daily_likes, 0) as likes,
+        coalesce(d.daily_comments, 0) as comments,
+        coalesce(d.daily_shares, 0) as shares,
+        0 as saves,
+        coalesce(d.daily_views, 0) as views,
+        0 as impressions,
+        coalesce(d.daily_likes, 0) as engagement_score
+      from deltas d
+      join outlaw_data.tiktok_videos tv on tv.video_id = d.video_id
+      where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        and d.activity_day >= current_date - interval '180 days'
+        and coalesce(d.daily_likes, 0) > 0
+      order by d.activity_day desc, engagement_score desc, create_time desc
+    `;
+
     const [
       followerTrendRows,
       facebookPerformanceRows,
       facebookRecentRows,
       facebookReactionRows,
       facebookTopPostRows,
+      facebookReachDriverRows,
+      facebookReactionDriverRows,
       instagramPerformanceRows,
       instagramRecentRows,
       instagramMixRows,
@@ -666,12 +868,16 @@ export async function GET() {
       tiktokRecentRows,
       tiktokAccountRows,
       tiktokTopPostRows,
+      tiktokViewDriverRows,
+      tiktokLikeDriverRows,
     ] = await Promise.all([
       runQuery<TrendRow>(followerTrendSql),
       runQuery<DailyMetricRow>(facebookPerformanceSql),
       runQuery<SummaryRow>(facebookRecentSql),
       runQuery<ReactionRow>(facebookReactionSql),
       runQuery<TopPostRow>(facebookTopPostsSql),
+      runQuery<TopPostRow>(facebookReachDriversSql),
+      runQuery<TopPostRow>(facebookReactionDriversSql),
       runQuery<DailyMetricRow>(instagramPerformanceSql),
       runQuery<SummaryRow>(instagramRecentSql),
       runQuery<InstagramMixRow>(instagramMixSql),
@@ -682,6 +888,8 @@ export async function GET() {
       runQuery<SummaryRow>(tiktokRecentSql),
       runQuery<TikTokAccountRow>(tiktokAccountSql),
       runQuery<TopPostRow>(tiktokTopPostsSql),
+      runQuery<TopPostRow>(tiktokViewDriversSql),
+      runQuery<TopPostRow>(tiktokLikeDriversSql),
     ]);
 
     const trendMap = new Map<
@@ -751,7 +959,11 @@ export async function GET() {
       {} as Record<string, DemographicRow[]>
     );
 
+    const facebookReachDrivers = buildActivityDrivers(facebookReachDriverRows);
+    const facebookReactionDrivers = buildActivityDrivers(facebookReactionDriverRows);
     const instagramActivityDrivers = buildActivityDrivers(instagramActivityDriverRows);
+    const tiktokViewDrivers = buildActivityDrivers(tiktokViewDriverRows);
+    const tiktokLikeDrivers = buildActivityDrivers(tiktokLikeDriverRows);
 
     const summaries = (Object.keys(PLATFORM_META) as Platform[]).map((platform) => {
       const followersTrend = followersByPlatform[platform];
@@ -855,6 +1067,8 @@ export async function GET() {
             ],
           },
         ],
+        activityDrivers: facebookReachDrivers,
+        secondaryActivityDrivers: facebookReactionDrivers,
         topPosts: facebookTopPostRows.map(normalizePost),
       },
       instagram: {
@@ -1040,6 +1254,8 @@ export async function GET() {
             ],
           },
         ],
+        activityDrivers: tiktokViewDrivers,
+        secondaryActivityDrivers: tiktokLikeDrivers,
         topPosts: tiktokTopPostRows.map(normalizePost),
       },
     };
