@@ -654,24 +654,23 @@ function SummaryTile({
 
       {(() => {
         const posts = allData?.platforms[summary.platform]?.topPosts ?? [];
-        const total = (field: "likes" | "comments" | "shares") =>
+        const engTotal = (field: "likes" | "comments" | "shares") =>
           posts.reduce((s, p) => s + (p[field] as number), 0);
-        // Show all bottom metrics EXCEPT the one already in the big number
-        const allEngMetrics: { key: "likes" | "comments" | "shares"; label: string }[] = [
-          { key: "likes", label: "Likes" },
-          { key: "comments", label: "Cmts" },
-          { key: "shares", label: "Shares" },
+        const reachTotal = filterDays(summary.performanceTrend, days).reduce((s, p) => s + p.value, 0);
+        const allBottomMetrics: { key: MetricKey; label: string; val: number }[] = [
+          { key: "followers", label: "Followers", val: summary.latestFollowers },
+          { key: "reach",     label: "Reach",     val: reachTotal },
+          { key: "likes",     label: "Likes",     val: engTotal("likes") },
+          { key: "comments",  label: "Cmts",      val: engTotal("comments") },
+          { key: "shares",    label: "Shares",    val: engTotal("shares") },
         ];
-        // For followers/reach, show all three; for engagement, hide the selected one
-        const bottomMetrics = (metric === "followers" || metric === "reach")
-          ? allEngMetrics
-          : allEngMetrics.filter(({ key }) => key !== metric);
+        const bottomMetrics = allBottomMetrics.filter(({ key }) => key !== metric);
         return (
-          <div style={{ display: "flex", gap: 12, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)" }}>
-            {bottomMetrics.map(({ key, label }) => (
-              <div key={key} style={{ flex: 1 }}>
-                <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>{label}</div>
-                <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(total(key))}</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+            {bottomMetrics.map(({ key, label, val }) => (
+              <div key={key} style={{ flex: "1 1 auto", minWidth: 48 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{formatCompactNumber(val)}</div>
               </div>
             ))}
           </div>
@@ -753,26 +752,80 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
     return totals;
   }, [allData, days]);
 
+  // Big number + delta across all platforms for selected metric
+  const bigTotal = useMemo(() => {
+    let total = 0;
+    let delta = 0;
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      let pts: DataPoint[] = [];
+      if (metric === "followers") pts = filterDays(allData.platforms[p].followersTrend ?? [], days);
+      else if (metric === "reach") pts = filterDays(allData.platforms[p].performanceTrend ?? [], days);
+      else {
+        const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
+        pts = filterDays(buildMetricTrend(drivers, metric as "likes" | "comments" | "shares"), days);
+      }
+      const sum = pts.reduce((s, pt) => s + pt.value, 0);
+      total += metric === "followers" ? (allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0) : sum;
+      const half = Math.floor(pts.length / 2);
+      delta += pts.slice(half).reduce((s, pt) => s + pt.value, 0) - pts.slice(0, half).reduce((s, pt) => s + pt.value, 0);
+    });
+    return { total, delta };
+  }, [allData, metric, days]);
+
+  const metricLabel: Record<MetricKey, string> = { followers: "total followers", reach: "total reach / views", likes: "total likes", comments: "total comments", shares: "total shares" };
+
+  // Bottom stats: all metrics except selected
+  const bottomTotals = useMemo(() => {
+    const engTotals: { [k: string]: number } = { likes: 0, comments: 0, shares: 0 };
+    let reachTotal = 0;
+    let followersTotal = 0;
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      const posts = filterPostDays(allData.platforms[p].topPosts, days);
+      (["likes", "comments", "shares"] as const).forEach((f) => {
+        engTotals[f] += posts.reduce((s, post) => s + post[f], 0);
+      });
+      reachTotal += filterDays(allData.platforms[p].performanceTrend ?? [], days).reduce((s, pt) => s + pt.value, 0);
+      followersTotal += allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0;
+    });
+    const all: { key: MetricKey; label: string; val: number }[] = [
+      { key: "followers", label: "Followers", val: followersTotal },
+      { key: "reach",     label: "Reach",     val: reachTotal },
+      { key: "likes",     label: "Likes",     val: engTotals.likes },
+      { key: "comments",  label: "Cmts",      val: engTotals.comments },
+      { key: "shares",    label: "Shares",    val: engTotals.shares },
+    ];
+    return all.filter(({ key }) => key !== metric);
+  }, [allData, metric, days]);
+
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
-      <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
-        {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
-          <span key={p} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "var(--text-muted)" }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], display: "inline-block" }} />
-            {PLATFORM_LABELS[p]}
-          </span>
-        ))}
+      {/* Header: matches SummaryTile */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
+            <div key={p} style={{ width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[p], marginTop: 2 }} />
+          ))}
+        </div>
+        <div>
+          <div style={{ fontWeight: 700 }}>All Platforms</div>
+          <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{(Object.keys(PLATFORM_LABELS) as Platform[]).map((p) => PLATFORM_LABELS[p]).join(" · ")}</div>
+        </div>
       </div>
-      <div style={{ display: "flex", gap: 0, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid var(--border)" }}>
-        {(["likes", "comments", "shares"] as const).map((f) => (
-          <div key={f} style={{ flex: 1 }}>
-            <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>{f.charAt(0).toUpperCase() + f.slice(1)}</div>
-            <div style={{ fontWeight: 700, fontSize: 14 }}>{formatCompactNumber(platformTotals[f])}</div>
-          </div>
-        ))}
+
+      {/* Big number + delta */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{formatCompactNumber(bigTotal.total)}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{metricLabel[metric]}</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ color: bigTotal.delta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>{formatDelta(bigTotal.delta)}</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 12 }}>tracked period</div>
+        </div>
       </div>
-      <div style={{ flex: 1, minHeight: 140 }}>
+
+      {/* Chart */}
+      <div style={{ flex: 1, minHeight: 120 }}>
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ left: 2, right: 8, top: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -788,6 +841,16 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
             ))}
           </LineChart>
         </ResponsiveContainer>
+      </div>
+
+      {/* Bottom stats: all metrics except selected */}
+      <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+        {bottomTotals.map(({ key, label, val }) => (
+          <div key={key} style={{ flex: "1 1 auto", minWidth: 48 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: 13 }}>{formatCompactNumber(val)}</div>
+          </div>
+        ))}
       </div>
     </div>
   );
