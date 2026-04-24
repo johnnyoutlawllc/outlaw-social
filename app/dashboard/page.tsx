@@ -965,7 +965,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
           const wMax = Math.max(1, ...weekDays.map((w) => calendarMap[w.date]?.value ?? 0));
           return (
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${weekDays.length}, 1fr)`, gap: 8 }}>
-              {weekDays.map(({ date, label }) => {
+              {weekDays.map(({ date }) => {
                 const entry = calendarMap[date];
                 const intensity = entry ? entry.value / wMax : 0;
                 const bg = entry ? "rgba(255,107,53," + Math.max(0.2, intensity) + ")" : "rgba(255,255,255,0.04)";
