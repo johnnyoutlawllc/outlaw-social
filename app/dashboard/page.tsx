@@ -504,7 +504,58 @@ function AxisToggle({
   );
 }
 
-function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[]; color: string; includeZero?: boolean }) {
+
+// Recharts custom tooltip: shows posts driving the metric on a given day
+function ChartDayTooltip({
+  active, label, payload, dayPostsFn, metric,
+}: {
+  active?: boolean;
+  label?: string;
+  payload?: Array<{ value?: number; dataKey?: string; color?: string; name?: string }>;
+  dayPostsFn: (day: string) => (TopPost & { platform: Platform })[];
+  metric: MetricKey;
+}) {
+  if (!active || !label) return null;
+  const posts = dayPostsFn(label);
+  const getVal = (post: TopPost): number => {
+    if (metric === "likes") return post.likes ?? 0;
+    if (metric === "comments") return post.comments ?? 0;
+    if (metric === "shares") return post.shares ?? 0;
+    if (metric === "reach") return post.impressions ?? post.views ?? 0;
+    return (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0);
+  };
+  const dayTotal = payload?.reduce((s, p) => s + (p.value ?? 0), 0) ?? 0;
+  const maxVal = Math.max(1, ...posts.map(getVal));
+  return (
+    <div style={{ background: "#111", border: "1px solid var(--border)", borderRadius: 10, padding: 14, maxWidth: 280, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", pointerEvents: "none" }}>
+      <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatShortDate(label)}</div>
+      <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: posts.length ? 10 : 0, fontSize: 13 }}>
+        {formatCompactNumber(dayTotal)} {metric}
+      </div>
+      {posts.map((post) => {
+        const val = getVal(post);
+        const pct = Math.max(4, Math.round((val / maxVal) * 100));
+        return (
+          <div key={post.platform + post.id} style={{ marginBottom: 7 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+              <span style={{ color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200, fontSize: 11 }}>
+                {post.title || "Untitled"}
+              </span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10, flexShrink: 0, marginLeft: 6 }}>
+                {formatCompactNumber(val)}
+              </span>
+            </div>
+            <div style={{ height: 6, borderRadius: 3, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
+              <div style={{ height: "100%", width: pct + "%", background: PLATFORM_COLORS[post.platform], borderRadius: 3 }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniSparkline({ data, color, includeZero = true, activityDrivers, metric, platform }: { data: DataPoint[]; color: string; includeZero?: boolean; activityDrivers?: { [day: string]: TopPost[] }; metric?: MetricKey; platform?: Platform }) {
   const yDomain = useMemo(() => getNumericDomain(data.map(d => d.value), includeZero), [data, includeZero]);
   if (data.length === 0) {
     return <div style={{ height: 56, color: "var(--text-muted)", fontSize: 12 }}>No trend yet</div>;
@@ -531,13 +582,41 @@ function MiniSparkline({ data, color, includeZero = true }: { data: DataPoint[];
             width={36}
             tickFormatter={(v: number) => formatCompactNumber(v)}
           />
-          <Tooltip
-            cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
-            wrapperStyle={{ background: "transparent", border: "none" }}
-            contentStyle={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, padding: "5px 10px" }}
-            labelFormatter={(v: string) => { const d = new Date(v + "T00:00:00"); return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }}
-            formatter={(v: unknown) => [formatCompactNumber(Number(v)), "total"]}
-          />
+          {activityDrivers && metric && metric !== "followers" ? (
+            <Tooltip
+              cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
+              wrapperStyle={{ zIndex: 200 }}
+              content={(props) => (
+                <ChartDayTooltip
+                  {...props}
+                  metric={metric}
+                  dayPostsFn={(day) => {
+                    const posts = (activityDrivers[day] ?? []) as TopPost[];
+                    return posts
+                      .map((p) => ({ ...p, platform: (platform ?? "facebook") as Platform }))
+                      .sort((a, b) => {
+                        const v = (post: TopPost): number => {
+                          if (metric === "likes") return post.likes ?? 0;
+                          if (metric === "comments") return post.comments ?? 0;
+                          if (metric === "shares") return post.shares ?? 0;
+                          if (metric === "reach") return post.impressions ?? post.views ?? 0;
+                          return (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0);
+                        };
+                        return v(b) - v(a);
+                      });
+                  }}
+                />
+              )}
+            />
+          ) : (
+            <Tooltip
+              cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
+              wrapperStyle={{ background: "transparent", border: "none" }}
+              contentStyle={{ background: "#111", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12, padding: "5px 10px" }}
+              labelFormatter={(v: string) => { const d = new Date(v + "T00:00:00"); return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); }}
+              formatter={(v: unknown) => [formatCompactNumber(Number(v)), "total"]}
+            />
+          )}
           <Line
             type="monotone"
             dataKey="value"
@@ -649,7 +728,14 @@ function SummaryTile({
           sparkData = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
         }
         void engFields;
-        return <MiniSparkline data={filterDays(sparkData, days, endDate)} color={color} includeZero={includeZero} />;
+        return <MiniSparkline
+            data={filterDays(sparkData, days, endDate)}
+            color={color}
+            includeZero={includeZero}
+            activityDrivers={(allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [day: string]: TopPost[] }}
+            metric={metric}
+            platform={summary.platform}
+          />;
       })()}
 
       {(() => {
@@ -823,9 +909,29 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
             <XAxis dataKey="day" tick={{ fontSize: 10, fill: "var(--text-muted)" }} tickLine={false} axisLine={false} tickFormatter={formatShortDate} interval="preserveStartEnd" minTickGap={40} />
             <YAxis domain={yDomain} tick={{ fontSize: 10, fill: "var(--text-muted)" }} tickLine={false} axisLine={false} tickFormatter={(v: number) => formatCompactNumber(v)} width={36} />
             <Tooltip
-              contentStyle={{ background: "#0c0c0c", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12 }}
-              labelFormatter={(l) => formatShortDate(String(l))}
-              formatter={(value, name) => [formatCompactNumber(Number(value ?? 0)), PLATFORM_LABELS[name as Platform] ?? String(name)]}
+              cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
+              wrapperStyle={{ zIndex: 200 }}
+              content={(tooltipProps) => (
+                <ChartDayTooltip
+                  {...tooltipProps}
+                  metric={metric}
+                  dayPostsFn={(day) => {
+                    const merged: (TopPost & { platform: Platform })[] = [];
+                    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+                      const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [d: string]: TopPost[] };
+                      (drivers[day] ?? []).forEach((post) => merged.push({ ...post, platform: p }));
+                    });
+                    const getV = (post: TopPost): number => {
+                      if (metric === "likes") return post.likes ?? 0;
+                      if (metric === "comments") return post.comments ?? 0;
+                      if (metric === "shares") return post.shares ?? 0;
+                      if (metric === "reach") return post.impressions ?? post.views ?? 0;
+                      return (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0);
+                    };
+                    return merged.sort((a, b) => getV(b) - getV(a));
+                  }}
+                />
+              )}
             />
             {(Object.keys(PLATFORM_COLORS) as Platform[]).map((p) => (
               <Line key={p} type="monotone" dataKey={p} stroke={PLATFORM_COLORS[p]} strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls />
