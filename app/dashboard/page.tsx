@@ -821,7 +821,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
       });
     });
     return filterTrendDays(Object.values(map).sort((a, b) => a.day.localeCompare(b.day)), days, endDate);
-  }, [data, allData, metric, days, endDate]);
+  }, [allData, metric, days, endDate]);
 
   const yDomain = useMemo(
     () => getNumericDomain(
@@ -1211,7 +1211,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
           if (metric === "comments") return post.comments ?? 0;
           if (metric === "shares") return post.shares ?? 0;
           if (metric === "reach") return post.impressions ?? post.views ?? 0;
-          return post.followers ?? 0;
+          return 0;
         };
 
         // Build lookup: postId -> { [date]: value }
@@ -1400,7 +1400,7 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return combined;
-  }, [data, active, sortBy, sortDir, days, endDate]);
+  }, [data, active, allPlatforms, sortBy, sortDir, days, endDate]);
 
   // Build per-day data for a given post + column metric
   const hoveredDailyData = useMemo(() => {
