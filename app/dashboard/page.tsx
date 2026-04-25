@@ -1397,14 +1397,29 @@ function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: Dashboa
                   <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>
                     {colLabel[hovered.col] ?? hovered.col} by day
                   </div>
-                  <ResponsiveContainer width="100%" height={70}>
-                    <LineChart data={hoveredDailyData} margin={{ left: 0, right: 4, top: 2, bottom: 0 }}>
-                      <XAxis dataKey="day" hide />
-                      <YAxis hide />
+                  <ResponsiveContainer width="100%" height={100}>
+                    <LineChart data={hoveredDailyData} margin={{ left: 28, right: 8, top: 4, bottom: 16 }}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.06)" strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="day"
+                        tickFormatter={(d: string) => { const dt = new Date(d + "T12:00:00"); return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }}
+                        tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={30}
+                      />
+                      <YAxis
+                        tickFormatter={(v: number) => formatCompactNumber(v)}
+                        tick={{ fontSize: 9, fill: "var(--text-muted)" }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={28}
+                      />
                       <Tooltip
                         contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
                         formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
-                        labelFormatter={(l: string) => l}
+                        labelFormatter={(l: string) => { const dt = new Date(l + "T12:00:00"); return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" }); }}
                       />
                       <Line type="monotone" dataKey="value" stroke={pColor} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
                     </LineChart>
