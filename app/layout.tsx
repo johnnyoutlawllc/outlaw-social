@@ -16,7 +16,7 @@ export const metadata: Metadata = {
   },
 };
 
-const VERSION = "v42099";
+const VERSION = "v42100";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
