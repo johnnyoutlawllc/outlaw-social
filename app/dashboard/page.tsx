@@ -208,20 +208,17 @@ function getCutoff(days: number): string {
   d.setDate(d.getDate() - days);
   return d.toISOString().slice(0, 10);
 }
-function filterDays(data: DataPoint[], days: number): DataPoint[] {
-  if (days >= 365) return data;
-  const cut = getCutoff(days);
-  return data.filter((p) => p.day >= cut);
+function filterDays(data: DataPoint[], days: number, endDate = ""): DataPoint[] {
+  const cut = days >= 365 ? "0000-00-00" : getCutoff(days);
+  return data.filter((p) => p.day >= cut && (!endDate || p.day <= endDate));
 }
-function filterTrendDays(data: TrendPoint[], days: number): TrendPoint[] {
-  if (days >= 365) return data;
-  const cut = getCutoff(days);
-  return data.filter((p) => p.day >= cut);
+function filterTrendDays(data: TrendPoint[], days: number, endDate = ""): TrendPoint[] {
+  const cut = days >= 365 ? "0000-00-00" : getCutoff(days);
+  return data.filter((p) => p.day >= cut && (!endDate || p.day <= endDate));
 }
-function filterPostDays(posts: TopPost[], days: number): TopPost[] {
-  if (days >= 365) return posts;
-  const cut = getCutoff(days);
-  return posts.filter((p) => (p.createdAt ?? "9999") >= cut);
+function filterPostDays(posts: TopPost[], days: number, endDate = ""): TopPost[] {
+  const cut = days >= 365 ? "0000-00-00" : getCutoff(days);
+  return posts.filter((p) => (p.createdAt ?? "9999") >= cut && (!endDate || (p.createdAt ?? "0000") <= endDate));
 }
 
 function formatShortDate(value: string) {
@@ -563,6 +560,7 @@ function SummaryTile({
   metric = "followers" as MetricKey,
   includeZero = true,
   days = 365,
+  endDate = "",
   allData,
 }: {
   summary: Summary;
@@ -609,7 +607,7 @@ function SummaryTile({
           bigDelta = summary.deltaFollowers;
           bigLabel = "followers";
         } else if (metric === "reach") {
-          const pts = filterDays(summary.performanceTrend, days);
+          const pts = filterDays(summary.performanceTrend, days, endDate);
           bigVal = pts.reduce((s, p) => s + p.value, 0);
           const half = Math.floor(pts.length / 2);
           const recent = pts.slice(half).reduce((s, p) => s + p.value, 0);
@@ -619,7 +617,7 @@ function SummaryTile({
         } else {
           const drivers = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
           const trendPts = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
-          const pts = filterDays(trendPts, days);
+          const pts = filterDays(trendPts, days, endDate);
           bigVal = pts.reduce((s, p) => s + p.value, 0);
           const half = Math.floor(pts.length / 2);
           const recent = pts.slice(half).reduce((s, p) => s + p.value, 0);
@@ -651,14 +649,14 @@ function SummaryTile({
           sparkData = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
         }
         void engFields;
-        return <MiniSparkline data={filterDays(sparkData, days)} color={color} includeZero={includeZero} />;
+        return <MiniSparkline data={filterDays(sparkData, days, endDate)} color={color} includeZero={includeZero} />;
       })()}
 
       {(() => {
-        const posts = filterPostDays(allData?.platforms[summary.platform]?.topPosts ?? [], days);
+        const posts = filterPostDays(allData?.platforms[summary.platform]?.topPosts ?? [], days, endDate);
         const engTotal = (field: "likes" | "comments" | "shares") =>
           posts.reduce((s, p) => s + (p[field] as number), 0);
-        const reachTotal = filterDays(summary.performanceTrend, days).reduce((s, p) => s + p.value, 0);
+        const reachTotal = filterDays(summary.performanceTrend, days, endDate).reduce((s, p) => s + p.value, 0);
         const allBottomMetrics: { key: MetricKey; label: string; val: number }[] = [
           { key: "followers", label: "Followers", val: summary.latestFollowers },
           { key: "reach",     label: "Reach",     val: reachTotal },
@@ -708,7 +706,7 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; onMetricChange?: (m: MetricKey) => void }) {
+function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, endDate = "", onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
   const chartData = useMemo(() => {
     const map: { [day: string]: TrendPoint } = {};
     const source: { [p: string]: DataPoint[] } = {};
@@ -733,7 +731,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
         map[day][p] = value;
       });
     });
-    return filterTrendDays(Object.values(map).sort((a, b) => a.day.localeCompare(b.day)), days);
+    return filterTrendDays(Object.values(map).sort((a, b) => a.day.localeCompare(b.day)), days, endDate);
   }, [data, allData, metric, days]);
 
   const yDomain = useMemo(
@@ -751,11 +749,11 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
     let delta = 0;
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
       let pts: DataPoint[] = [];
-      if (metric === "followers") pts = filterDays(allData.platforms[p].followersTrend ?? [], days);
-      else if (metric === "reach") pts = filterDays(allData.platforms[p].performanceTrend ?? [], days);
+      if (metric === "followers") pts = filterDays(allData.platforms[p].followersTrend ?? [], days, endDate);
+      else if (metric === "reach") pts = filterDays(allData.platforms[p].performanceTrend ?? [], days, endDate);
       else {
         const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
-        pts = filterDays(buildMetricTrend(drivers, metric as "likes" | "comments" | "shares"), days);
+        pts = filterDays(buildMetricTrend(drivers, metric as "likes" | "comments" | "shares"), days, endDate);
       }
       const sum = pts.reduce((s, pt) => s + pt.value, 0);
       total += metric === "followers" ? (allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0) : sum;
@@ -773,11 +771,11 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
     let reachTotal = 0;
     let followersTotal = 0;
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      const posts = filterPostDays(allData.platforms[p].topPosts, days);
+      const posts = filterPostDays(allData.platforms[p].topPosts, days, endDate);
       (["likes", "comments", "shares"] as const).forEach((f) => {
         engTotals[f] += posts.reduce((s, post) => s + post[f], 0);
       });
-      reachTotal += filterDays(allData.platforms[p].performanceTrend ?? [], days).reduce((s, pt) => s + pt.value, 0);
+      reachTotal += filterDays(allData.platforms[p].performanceTrend ?? [], days, endDate).reduce((s, pt) => s + pt.value, 0);
       followersTotal += allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0;
     });
     const all: { key: MetricKey; label: string; val: number }[] = [
@@ -854,12 +852,13 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
 
 
 // ---- Posting Calendar ----
-function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: DashboardPayload; metric?: MetricKey; days?: number }) {
+function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" }: { data: DashboardPayload; metric?: MetricKey; days?: number; endDate?: string }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
 
   const calendarMap = useMemo(() => {
     const map: { [d: string]: { count: number; value: number; platforms: Platform[] } } = {};
     const cut = days < 365 ? getCutoff(days) : "0000-00-00";
+    const capDate = endDate || "9999-99-99";
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
       if (metric === "likes" || metric === "comments" || metric === "shares") {
         // Sum engagement metric per day from activity drivers
@@ -1112,7 +1111,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
   );
 }
 // ---- Top Posts by Platform ----
-function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: DashboardPayload; days?: number; metric?: MetricKey }) {
+function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: { data: DashboardPayload; days?: number; metric?: MetricKey; endDate?: string }) {
   const allPlatforms: Platform[] = ["facebook", "instagram", "tiktok"];
   const [active, setActive] = useState<Platform[]>(["facebook", "instagram", "tiktok"]);
   const [sortBy, setSortBy] = useState<string>(metric);
@@ -1132,7 +1131,7 @@ function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: Dashboa
     const combined: (TopPost & { platform: Platform })[] = [];
     allPlatforms.forEach((p) => {
       if (active.includes(p)) {
-        filterPostDays(data.platforms[p].topPosts, days).forEach((post) => combined.push({ ...post, platform: p }));
+        filterPostDays(data.platforms[p].topPosts, days, endDate).forEach((post) => combined.push({ ...post, platform: p }));
       }
     });
     combined.sort((a, b) => {
@@ -2178,26 +2177,37 @@ function PlatformSection({ detail }: { detail: PlatformDetails }) {
   );
 }
 
-function DateRangeFilter({ globalDays, onDaysChange }: { globalDays: number; onDaysChange: (d: number) => void }) {
+function DateRangeFilter({ globalDays, onDaysChange, endDate, onEndDateChange }: {
+  globalDays: number;
+  onDaysChange: (d: number) => void;
+  endDate: string;
+  onEndDateChange: (d: string) => void;
+}) {
+  const today = new Date().toISOString().slice(0, 10);
   const presets = [
     { label: "Last 7d", days: 7 },
     { label: "Last 30d", days: 30 },
     { label: "All Time", days: 365 },
   ];
-  const isCustom = !presets.some((p) => p.days === globalDays);
+  const isCustom = !presets.some((p) => p.days === globalDays) || !!endDate;
   const [showCustom, setShowCustom] = useState(isCustom);
   const [customFrom, setCustomFrom] = useState(() => {
-    if (isCustom) {
+    if (isCustom && globalDays < 365) {
       const d = new Date(); d.setDate(d.getDate() - globalDays);
       return d.toISOString().slice(0, 10);
     }
     return "";
   });
+  const [customTo, setCustomTo] = useState(endDate || "");
 
-  const applyCustom = (from: string) => {
+  const applyRange = (from: string, to: string) => {
     if (!from) return;
-    const diff = Math.max(1, Math.round((Date.now() - new Date(from).getTime()) / 86400000));
+    const toDate = to || today;
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(toDate).getTime();
+    const diff = Math.max(1, Math.round((toMs - fromMs) / 86400000));
     onDaysChange(diff);
+    onEndDateChange(to && to !== today ? to : "");
   };
 
   const btnStyle = (active: boolean): React.CSSProperties => ({
@@ -2213,12 +2223,22 @@ function DateRangeFilter({ globalDays, onDaysChange }: { globalDays: number; onD
     whiteSpace: "nowrap" as const,
   });
 
+  const inputStyle: React.CSSProperties = {
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    color: "#fff",
+    fontSize: 12,
+    padding: "4px 8px",
+    cursor: "pointer",
+  };
+
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4, flexWrap: "wrap" }}>
       {presets.map((p) => (
         <button key={p.label} type="button"
-          onClick={() => { setShowCustom(false); onDaysChange(p.days); }}
-          style={btnStyle(!showCustom && globalDays === p.days)}
+          onClick={() => { setShowCustom(false); onDaysChange(p.days); onEndDateChange(""); }}
+          style={btnStyle(!showCustom && globalDays === p.days && !endDate)}
         >
           {p.label}
         </button>
@@ -2230,14 +2250,28 @@ function DateRangeFilter({ globalDays, onDaysChange }: { globalDays: number; onD
         Custom
       </button>
       {showCustom && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 6, flexWrap: "wrap" }}>
           <input
             type="date"
             value={customFrom}
-            onChange={(e) => { setCustomFrom(e.target.value); applyCustom(e.target.value); }}
-            style={{ background: "rgba(255,255,255,0.06)", border: "1px solid var(--border)", borderRadius: 6, color: "#fff", fontSize: 12, padding: "4px 8px", cursor: "pointer" }}
+            max={customTo || today}
+            onChange={(e) => { setCustomFrom(e.target.value); applyRange(e.target.value, customTo); }}
+            style={inputStyle}
           />
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>→ today</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>→</span>
+          <input
+            type="date"
+            value={customTo}
+            min={customFrom}
+            max={today}
+            onChange={(e) => { setCustomTo(e.target.value); applyRange(customFrom, e.target.value); }}
+            style={inputStyle}
+          />
+          {(customFrom || customTo) && (
+            <span style={{ fontSize: 11, color: "var(--accent)", marginLeft: 2 }}>
+              {customFrom || "start"} → {customTo || "today"}
+            </span>
+          )}
         </div>
       )}
     </div>
@@ -2252,6 +2286,7 @@ export default function DashboardPage() {
   const [globalIncludeZero, setGlobalIncludeZero] = useState(false);
   const [globalMetric, setGlobalMetric] = useState<MetricKey>("reach");
   const [globalDays, setGlobalDays] = useState(30);
+  const [globalEndDate, setGlobalEndDate] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -2381,7 +2416,7 @@ export default function DashboardPage() {
               <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
               <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
             </div>
-            <DateRangeFilter globalDays={globalDays} onDaysChange={setGlobalDays} />
+            <DateRangeFilter globalDays={globalDays} onDaysChange={setGlobalDays} endDate={globalEndDate} onEndDateChange={setGlobalEndDate} />
           </div>
           <div
             style={{
@@ -2392,12 +2427,12 @@ export default function DashboardPage() {
             }}
           >
             {data.summaries.map((summary) => (
-              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} onMetricChange={setGlobalMetric} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} allData={data} />
+              <SummaryTile key={summary.platform} summary={summary} onSelect={setActiveTab} onMetricChange={setGlobalMetric} metric={globalMetric} includeZero={globalIncludeZero} days={globalDays} endDate={globalEndDate} allData={data} />
             ))}
-            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} onMetricChange={setGlobalMetric} />
+            <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} endDate={globalEndDate} onMetricChange={setGlobalMetric} />
           </div>
-          <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} />
-          <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} />
+          <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} endDate={globalEndDate} />
+          <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} endDate={globalEndDate} />
         </>
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
