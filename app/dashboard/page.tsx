@@ -1063,7 +1063,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
           return post.likes + post.comments + post.shares;
         };
         const allDayPosts: (TopPost & { platform: Platform })[] = [];
-        hovPosts.forEach(({ platform, posts }) => posts.forEach((p) => allDayPosts.push({ ...p, platform })));
+        (hovPosts ?? []).forEach(({ platform, posts }) => posts.forEach((p) => allDayPosts.push({ ...p, platform })));
         allDayPosts.sort((a, b) => getMetricVal(b) - getMetricVal(a));
         const maxVal = Math.max(1, ...allDayPosts.map(getMetricVal));
         const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric;
@@ -1086,7 +1086,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
             <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 10, fontSize: 13 }}>
               {formatCompactNumber(calendarMap[calHov.date]?.value ?? 0)} total {metricLabel}
             </div>
-            {hovPosts && allDayPosts.map((post) => {
+            {(hovPosts ?? []).length > 0 && allDayPosts.map((post) => {
               const val = getMetricVal(post);
               const pct = Math.max(4, Math.round((val / maxVal) * 100));
               return (
