@@ -795,7 +795,8 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, endDate = "", onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
+function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, endDate = "", onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
+  void _data;
   const chartData = useMemo(() => {
     const map: { [day: string]: TrendPoint } = {};
     const source: { [p: string]: DataPoint[] } = {};
