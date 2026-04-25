@@ -965,69 +965,115 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
 
 
 // Heatmap cell for post activity table
-function HeatCell({ val, bg, post, metric, date }: {
+function HeatCell({ val, bg, post, metric, date, platform, sparks }: {
   val: number; bg: string;
   post: TopPost | null; metric: MetricKey; date: string;
+  platform: Platform; sparks: { date: string; v: number }[];
 }) {
   const [hov, setHov] = useState(false);
   const ref = useRef<HTMLTableCellElement>(null);
-  const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
+  const [tipPos, setTipPos] = useState({ x: 0, y: 0, flip: false });
 
   const handleEnter = () => {
     if (!post || val === 0) return;
     const rect = ref.current?.getBoundingClientRect();
-    if (rect) setTipPos({ x: rect.left, y: rect.bottom + 6 });
+    if (rect) {
+      const winW = typeof window !== "undefined" ? window.innerWidth : 900;
+      const tipW = 210;
+      const flip = rect.left + tipW > winW - 16;
+      setTipPos({ x: flip ? rect.right - tipW : rect.left, y: rect.bottom + 6, flip });
+    }
     setHov(true);
   };
 
   if (!post || val === 0) {
     return (
-      <td style={{ background: bg, textAlign: "center", padding: "3px 2px", fontSize: 9, color: "rgba(255,255,255,0.25)", height: 28, width: 38 }}>
+      <td style={{ background: bg, textAlign: "center", padding: "3px 2px", fontSize: 9, color: "rgba(255,255,255,0.25)", height: 28 }}>
         ·
       </td>
     );
   }
 
-  const metrics: { key: MetricKey; label: string; val: number }[] = [
+  const tipMetrics: { key: MetricKey; label: string; val: number }[] = [
     { key: "reach",    label: "Reach",    val: post.impressions ?? post.views ?? 0 },
     { key: "likes",    label: "Likes",    val: post.likes ?? 0 },
     { key: "comments", label: "Comments", val: post.comments ?? 0 },
     { key: "shares",   label: "Shares",   val: post.shares ?? 0 },
   ];
+  const pColor = PLATFORM_COLORS[platform];
+
+  // Sparkline
+  const sparkEl = (() => {
+    const nonZero = sparks.filter((s) => s.v > 0);
+    if (nonZero.length < 2) return null;
+    const maxV = Math.max(1, ...sparks.map((s) => s.v));
+    const w = 186, h = 28;
+    const pts = sparks.map((s, i) => {
+      const x = sparks.length > 1 ? (i / (sparks.length - 1)) * w : w / 2;
+      const y = h - (s.v / maxV) * (h - 2) - 1;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(" ");
+    const activeIdx = sparks.findIndex((s) => s.date === date);
+    const ax = activeIdx >= 0 && sparks.length > 1 ? (activeIdx / (sparks.length - 1)) * w : -999;
+    const ay = activeIdx >= 0 ? h - (sparks[activeIdx].v / maxV) * (h - 2) - 1 : 0;
+    return (
+      <svg width={w} height={h} style={{ display: "block", marginTop: 6 }}>
+        <polyline points={pts} fill="none" stroke={pColor} strokeWidth={1.5} strokeLinejoin="round" opacity={0.7} />
+        {activeIdx >= 0 && <circle cx={ax} cy={ay} r={3} fill={pColor} />}
+      </svg>
+    );
+  })();
 
   return (
     <td
       ref={ref}
       onMouseEnter={handleEnter}
       onMouseLeave={() => setHov(false)}
-      style={{ background: bg, textAlign: "center", padding: "3px 2px", fontSize: 9, color: val > 0 ? "rgba(255,255,255,0.8)" : "rgba(255,255,255,0.15)", height: 28, width: 38, cursor: "pointer", position: "relative" }}
+      style={{ background: bg, textAlign: "center", padding: "3px 2px", fontSize: 9, color: "rgba(255,255,255,0.8)", height: 28, cursor: "pointer" }}
     >
-      {val > 0 ? formatCompactNumber(val) : "·"}
+      {formatCompactNumber(val)}
       {hov && (
         <div style={{
           position: "fixed",
-          left: Math.min(tipPos.x, (typeof window !== "undefined" ? window.innerWidth : 900) - 200),
+          left: Math.max(8, tipPos.x),
           top: tipPos.y,
-          width: 180,
+          width: 210,
           background: "#111",
           border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: 10,
+          borderRadius: 10,
+          overflow: "hidden",
           zIndex: 2000,
           pointerEvents: "none",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
-          fontSize: 11,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.7)",
           textAlign: "left",
         }}>
-          <div style={{ fontWeight: 700, color: "#fff", marginBottom: 6, fontSize: 10 }}>
-            {new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-          </div>
-          {metrics.map((m) => (
-            <div key={m.key} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0", borderRadius: 3, background: m.key === metric ? "rgba(255,107,53,0.12)" : "transparent", paddingLeft: m.key === metric ? 4 : 0 }}>
-              <span style={{ color: m.key === metric ? "var(--accent)" : "var(--text-muted)", fontWeight: m.key === metric ? 700 : 400 }}>{m.label}</span>
-              <span style={{ color: m.key === metric ? "#fff" : "var(--text-muted)", fontWeight: m.key === metric ? 700 : 400 }}>{formatCompactNumber(m.val)}</span>
+          {post.imageUrl && (
+            <img src={post.imageUrl} alt="" style={{ width: "100%", height: 90, objectFit: "cover", display: "block" }} />
+          )}
+          <div style={{ padding: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 5 }}>
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: pColor, flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: pColor, fontWeight: 700 }}>{PLATFORM_LABELS[platform]}</span>
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }}>·</span>
+              <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                {new Date(date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </span>
             </div>
-          ))}
+            {post.title && (
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#fff", marginBottom: 8, lineHeight: 1.4, maxHeight: 42, overflow: "hidden" }}>
+                {post.title}
+              </div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, marginBottom: 4 }}>
+              {tipMetrics.map((m) => (
+                <div key={m.key} style={{ background: m.key === metric ? "rgba(255,107,53,0.18)" : "rgba(255,255,255,0.05)", borderRadius: 4, padding: "3px 6px" }}>
+                  <div style={{ fontSize: 8, color: m.key === metric ? "var(--accent)" : "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.label}</div>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: m.key === metric ? "#fff" : "rgba(255,255,255,0.7)" }}>{formatCompactNumber(m.val)}</div>
+                </div>
+              ))}
+            </div>
+            {sparkEl}
+          </div>
         </div>
       )}
     </td>
@@ -1037,6 +1083,32 @@ function HeatCell({ val, bg, post, metric, date }: {
 // ---- Posting Calendar ----
 function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" }: { data: DashboardPayload; metric?: MetricKey; days?: number; endDate?: string }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
+  const [tableSortCol, setTableSortCol] = useState<string>("total");
+  const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("desc");
+  const [nameColW, setNameColW] = useState(200);
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const [tableW, setTableW] = useState(800);
+  useEffect(() => {
+    const el = tableContainerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setTableW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const handleNameResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = nameColW;
+    const onMove = (ev: MouseEvent) => setNameColW(Math.max(100, startW + ev.clientX - startX));
+    const onUp = () => { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  const handleSortClick = (col: string) => {
+    if (tableSortCol === col) setTableSortDir((d) => d === "asc" ? "desc" : "asc");
+    else { setTableSortCol(col); setTableSortDir("desc"); }
+  };
+  const sortArrow = (col: string) => tableSortCol === col ? (tableSortDir === "asc" ? " ↑" : " ↓") : "";
 
   const calendarMap = useMemo(() => {
     const map: { [d: string]: { count: number; value: number; platforms: Platform[] } } = {};
@@ -1316,62 +1388,126 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
 
         const CELL_W = 38;
         const TOTAL_W = 60;
-        const NAME_W = 200;
         const DATE_W = 64;
+        const fixedColsW = nameColW + DATE_W + TOTAL_W;
+        const dateColW = activeDates.length > 0 ? Math.max(20, (tableW - fixedColsW) / activeDates.length) : CELL_W;
+        const showDateLabels = dateColW >= 26;
+
+        // Sparkline data per row: values across all active dates
+        const rowSparkData: Record<string, { date: string; v: number }[]> = {};
+        rowKeys.forEach((key) => {
+          rowSparkData[key] = activeDates.map((d) => ({
+            date: d,
+            v: postDateData[key]?.[d] ? getVal(postDateData[key][d]) : 0,
+          }));
+        });
+
+        // Sort rows
+        const sortedRowKeys = [...rowKeys];
+        sortedRowKeys.sort((a, b) => {
+          let av: number | string = 0, bv: number | string = 0;
+          if (tableSortCol === "total") { av = grandTotals[a]; bv = grandTotals[b]; }
+          else if (tableSortCol === "name") { av = (postMeta[a]?.title ?? "").toLowerCase(); bv = (postMeta[b]?.title ?? "").toLowerCase(); }
+          else if (tableSortCol === "date") { av = postFirstDate[a] ?? ""; bv = postFirstDate[b] ?? ""; }
+          else { av = postDateData[a]?.[tableSortCol] ? getVal(postDateData[a][tableSortCol]) : 0; bv = postDateData[b]?.[tableSortCol] ? getVal(postDateData[b][tableSortCol]) : 0; }
+          if (av < bv) return tableSortDir === "asc" ? -1 : 1;
+          if (av > bv) return tableSortDir === "asc" ? 1 : -1;
+          return 0;
+        });
+
+        const metricTitles: Record<MetricKey, string> = { reach: "Reach", likes: "Likes", comments: "Comments", shares: "Shares", followers: "Followers" };
+        const tableTitle = `${metricTitles[metric] ?? metric} by Day`;
+
+        const thStyle = (col: string): React.CSSProperties => ({
+          cursor: "pointer",
+          userSelect: "none",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          borderBottom: "1px solid var(--border)",
+          borderRight: "1px solid var(--border)",
+          color: tableSortCol === col ? "var(--accent)" : "var(--text-muted)",
+          fontWeight: tableSortCol === col ? 700 : 600,
+          fontSize: 10,
+          padding: "5px 6px",
+        });
 
         return (
           <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
             <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: "#fff" }}>
-              Post Activity by Date
+              {tableTitle}
             </div>
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
+            <div ref={tableContainerRef}>
+              <table style={{ borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed", width: "100%" }}>
                 <colgroup>
-                  <col style={{ width: TOTAL_W }} />
-                  <col style={{ width: NAME_W }} />
+                  <col style={{ width: nameColW }} />
                   <col style={{ width: DATE_W }} />
-                  {activeDates.map((d) => <col key={d} style={{ width: CELL_W }} />)}
+                  <col style={{ width: TOTAL_W }} />
+                  {activeDates.map((d) => <col key={d} style={{ width: dateColW }} />)}
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={{ position: "sticky", left: 0, background: "#0a0a0a", zIndex: 2, textAlign: "right", padding: "5px 8px", color: "var(--accent)", fontWeight: 700, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)", whiteSpace: "nowrap", fontSize: 10 }}>
-                      Total
+                    <th
+                      onClick={() => handleSortClick("name")}
+                      style={{ ...thStyle("name"), position: "sticky", left: 0, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 4px 5px 4px" }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                        <span>Post{sortArrow("name")}</span>
+                        <span
+                          onMouseDown={handleNameResizeStart}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ cursor: "col-resize", padding: "0 4px", color: "rgba(255,255,255,0.2)", fontSize: 12, userSelect: "none" }}
+                          title="Drag to resize"
+                        >⠿</span>
+                      </div>
                     </th>
-                    <th style={{ position: "sticky", left: TOTAL_W, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px 5px 4px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
-                      Post
+                    <th
+                      onClick={() => handleSortClick("date")}
+                      style={{ ...thStyle("date"), position: "sticky", left: nameColW, background: "#0a0a0a", zIndex: 2, textAlign: "left" }}
+                    >
+                      Post Date{sortArrow("date")}
                     </th>
-                    <th style={{ position: "sticky", left: TOTAL_W + NAME_W, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)", whiteSpace: "nowrap" }}>
-                      Post Date
+                    <th
+                      onClick={() => handleSortClick("total")}
+                      style={{ ...thStyle("total"), position: "sticky", left: nameColW + DATE_W, background: "#0a0a0a", zIndex: 2, textAlign: "right" }}
+                    >
+                      Total{sortArrow("total")}
                     </th>
                     {activeDates.map((d) => (
-                      <th key={d} style={{ textAlign: "center", padding: "5px 2px", color: "var(--text-muted)", fontWeight: 500, borderBottom: "1px solid var(--border)", fontSize: 9, whiteSpace: "nowrap", overflow: "hidden" }}>
-                        {new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      <th
+                        key={d}
+                        onClick={() => handleSortClick(d)}
+                        style={{ ...thStyle(d), textAlign: "center", padding: "5px 2px" }}
+                      >
+                        {showDateLabels
+                          ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          : ""}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {rowKeys.map((rowKey, idx) => {
+                  {sortedRowKeys.map((rowKey, idx) => {
                     const plat = postPlatform[rowKey];
                     const post = postMeta[rowKey];
                     const firstDate = postFirstDate[rowKey];
                     const rowBg = idx % 2 === 0 ? "#0a0a0a" : "#0d0d0d";
                     const total = grandTotals[rowKey];
+                    const sparks = rowSparkData[rowKey] ?? [];
                     return (
                       <tr key={rowKey}>
-                        <td style={{ position: "sticky", left: 0, background: rowBg, zIndex: 1, padding: "5px 8px", borderRight: "1px solid var(--border)", textAlign: "right", color: "var(--accent)", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap" }}>
-                          {formatCompactNumber(total)}
-                        </td>
-                        <td style={{ position: "sticky", left: TOTAL_W, background: rowBg, zIndex: 1, padding: "5px 8px 5px 4px", borderRight: "1px solid var(--border)", maxWidth: NAME_W, overflow: "hidden" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
-                            <span style={{ flexShrink: 0, width: 7, height: 7, borderRadius: "50%", background: PLATFORM_COLORS[plat], display: "inline-block" }} />
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#ccc" }}>
+                        <td style={{ position: "sticky", left: 0, background: rowBg, zIndex: 1, padding: "5px 4px", borderRight: "1px solid var(--border)", overflow: "hidden" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, overflow: "hidden" }}>
+                            <span style={{ flexShrink: 0, width: 6, height: 6, borderRadius: "50%", background: PLATFORM_COLORS[plat], display: "inline-block" }} />
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#ccc", fontSize: 11 }}>
                               {post?.title || "Untitled"}
                             </span>
                           </div>
                         </td>
-                        <td style={{ position: "sticky", left: TOTAL_W + NAME_W, background: rowBg, zIndex: 1, padding: "5px 8px", borderRight: "1px solid var(--border)", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 10 }}>
+                        <td style={{ position: "sticky", left: nameColW, background: rowBg, zIndex: 1, padding: "5px 6px", borderRight: "1px solid var(--border)", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 10, overflow: "hidden" }}>
                           {new Date(firstDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                        </td>
+                        <td style={{ position: "sticky", left: nameColW + DATE_W, background: rowBg, zIndex: 1, padding: "5px 6px", borderRight: "1px solid var(--border)", textAlign: "right", color: "var(--accent)", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap", overflow: "hidden" }}>
+                          {formatCompactNumber(total)}
                         </td>
                         {activeDates.map((d) => {
                           const cellPost = postDateData[rowKey]?.[d];
@@ -1379,7 +1515,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
                           const intensity = val > 0 ? Math.max(0.15, val / maxVal) : 0;
                           const bg = val > 0 ? `rgba(255,107,53,${intensity})` : "transparent";
                           return (
-                            <HeatCell key={d} val={val} bg={bg} post={cellPost ?? null} metric={metric} date={d} />
+                            <HeatCell key={d} val={val} bg={bg} post={cellPost ?? null} metric={metric} date={d} platform={plat} sparks={sparks} />
                           );
                         })}
                       </tr>
@@ -2761,7 +2897,7 @@ export default function DashboardPage() {
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+              gridTemplateColumns: "repeat(2, 1fr)",
               gap: 16,
               marginBottom: 24,
             }}
