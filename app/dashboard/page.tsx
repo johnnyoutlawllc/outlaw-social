@@ -1058,11 +1058,16 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
 
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posting Calendar</h2>
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+        {metric === "comments" ? "Comment Activity Calendar"
+          : metric === "likes" ? "Like Activity Calendar"
+          : metric === "shares" ? "Share Activity Calendar"
+          : metric === "reach" ? "Reach Calendar"
+          : "Follower Growth Calendar"}
+      </h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
         {(metric === "likes" || metric === "comments" || metric === "shares") ? `Daily ${metric} across all platforms` : `Post activity across all platforms`}
         {" — "}{days >= 365 ? "all time" : days <= 7 ? "last 7 days" : days <= 30 ? "last 30 days" : `last ${days} days`}
-        {" ("}{months.length} {months.length === 1 ? "month" : "months"}{")"}
       </p>
       {days <= 7 ? (
         // Week view: large day cells spanning full width
@@ -1165,6 +1170,131 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
         ))}
         <span>More {(metric === "likes" || metric === "comments" || metric === "shares") ? metric : "posts"}</span>
       </div>
+
+
+      {/* ── Post Activity Table ─────────────────────────────────────── */}
+      {(() => {
+        // Collect all unique posts across platforms in the date range
+        const allPosts: (TopPost & { platform: Platform })[] = [];
+        (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+          const drivers = (data.platforms[p].activityDrivers ?? {}) as { [d: string]: TopPost[] };
+          const seen = new Set<string>();
+          Object.values(drivers).forEach((dayPosts) => {
+            dayPosts.forEach((post) => {
+              if (!seen.has(post.id)) {
+                seen.add(post.id);
+                allPosts.push({ ...post, platform: p });
+              }
+            });
+          });
+        });
+
+        // Filter to date range
+        const cut = days < 365 ? getCutoff(days) : "0000-00-00";
+        const cap = endDate || "9999-99-99";
+        const filteredPosts = allPosts.filter((p) => {
+          const d = p.createdAt ?? "9999";
+          return d >= cut && d <= cap;
+        });
+
+        // Collect all active dates in range, sorted
+        const activeDates = Array.from(new Set(
+          (["facebook", "instagram", "tiktok"] as Platform[]).flatMap((p) =>
+            Object.keys((data.platforms[p].activityDrivers ?? {}) as { [d: string]: TopPost[] })
+          )
+        )).filter((d) => d >= cut && d <= cap).sort();
+
+        if (filteredPosts.length === 0 || activeDates.length === 0) return null;
+
+        const getVal = (post: TopPost): number => {
+          if (metric === "likes") return post.likes ?? 0;
+          if (metric === "comments") return post.comments ?? 0;
+          if (metric === "shares") return post.shares ?? 0;
+          if (metric === "reach") return post.impressions ?? post.views ?? 0;
+          return post.followers ?? 0;
+        };
+
+        // Build lookup: postId -> { [date]: value }
+        const postDateMap: Record<string, Record<string, number>> = {};
+        (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+          const drivers = (data.platforms[p].activityDrivers ?? {}) as { [d: string]: TopPost[] };
+          Object.entries(drivers).forEach(([day, posts]) => {
+            if (day < cut || day > cap) return;
+            posts.forEach((post) => {
+              if (!postDateMap[post.id]) postDateMap[post.id] = {};
+              postDateMap[post.id][day] = getVal(post);
+            });
+          });
+        });
+
+        // Sort posts by total metric desc
+        filteredPosts.sort((a, b) => {
+          const aTotal = Object.values(postDateMap[a.id] ?? {}).reduce((s, v) => s + v, 0);
+          const bTotal = Object.values(postDateMap[b.id] ?? {}).reduce((s, v) => s + v, 0);
+          return bTotal - aTotal;
+        });
+
+        const cellW = 52;
+        const fixedW = 320;
+
+        return (
+          <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: "#fff" }}>
+              Post Activity by Date
+            </div>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", fontSize: 11, width: "100%" }}>
+                <thead>
+                  <tr>
+                    <th style={{ position: "sticky", left: 0, background: "#0a0a0a", zIndex: 2, width: fixedW, minWidth: fixedW, textAlign: "left", padding: "6px 10px 6px 0", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
+                      Post
+                    </th>
+                    <th style={{ position: "sticky", left: fixedW - 80, background: "#0a0a0a", zIndex: 2, width: 80, minWidth: 80, textAlign: "left", padding: "6px 8px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
+                      Date
+                    </th>
+                    <th style={{ position: "sticky", left: fixedW, background: "#0a0a0a", zIndex: 2, width: 72, minWidth: 72, textAlign: "center", padding: "6px 8px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
+                      Platform
+                    </th>
+                    {activeDates.map((d) => (
+                      <th key={d} style={{ minWidth: cellW, width: cellW, textAlign: "center", padding: "6px 4px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", whiteSpace: "nowrap" }}>
+                        {new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredPosts.map((post, idx) => {
+                    const rowBg = idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)";
+                    return (
+                      <tr key={post.platform + post.id} style={{ background: rowBg }}>
+                        <td style={{ position: "sticky", left: 0, background: idx % 2 === 0 ? "#0a0a0a" : "#0d0d0d", zIndex: 1, padding: "7px 10px 7px 0", borderRight: "1px solid var(--border)", maxWidth: fixedW - 80, overflow: "hidden" }}>
+                          <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#ddd", maxWidth: fixedW - 90 }}>
+                            {post.title || "Untitled"}
+                          </span>
+                        </td>
+                        <td style={{ position: "sticky", left: fixedW - 80, background: idx % 2 === 0 ? "#0a0a0a" : "#0d0d0d", zIndex: 1, padding: "7px 8px", borderRight: "1px solid var(--border)", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+                          {post.createdAt ? new Date(post.createdAt + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        </td>
+                        <td style={{ position: "sticky", left: fixedW, background: idx % 2 === 0 ? "#0a0a0a" : "#0d0d0d", zIndex: 1, padding: "7px 8px", borderRight: "1px solid var(--border)", textAlign: "center" }}>
+                          <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", background: PLATFORM_COLORS[post.platform] }} />
+                        </td>
+                        {activeDates.map((d) => {
+                          const val = postDateMap[post.id]?.[d];
+                          return (
+                            <td key={d} style={{ textAlign: "center", padding: "7px 4px", color: val ? "#fff" : "var(--text-muted)", fontWeight: val ? 700 : 400, fontSize: val ? 12 : 10 }}>
+                              {val ? formatCompactNumber(val) : "·"}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {calHov && calendarMap[calHov.date] && (() => {
         // Flatten all posts for this day, sorted by selected metric desc
