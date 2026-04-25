@@ -1053,7 +1053,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
         <span>More {(metric === "likes" || metric === "comments" || metric === "shares") ? metric : "posts"}</span>
       </div>
 
-      {calHov && hovPosts && (() => {
+      {calHov && calendarMap[calHov.date] && (() => {
         // Flatten all posts for this day, sorted by selected metric desc
         const getMetricVal = (post: TopPost) => {
           if (metric === "likes") return post.likes;
@@ -1086,7 +1086,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365 }: { data: Das
             <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 10, fontSize: 13 }}>
               {formatCompactNumber(calendarMap[calHov.date]?.value ?? 0)} total {metricLabel}
             </div>
-            {allDayPosts.map((post) => {
+            {hovPosts && allDayPosts.map((post) => {
               const val = getMetricVal(post);
               const pct = Math.max(4, Math.round((val / maxVal) * 100));
               return (
