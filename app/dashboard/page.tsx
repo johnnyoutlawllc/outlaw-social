@@ -1333,65 +1333,92 @@ function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: Dashboa
           if (col === "secondary") return secondaryVal(post.platform, post);
           return 0;
         };
+        const winW = typeof window !== "undefined" ? window.innerWidth : 800;
+        const winH = typeof window !== "undefined" ? window.innerHeight : 600;
+        const tipW = 320;
+        const tipLeft = Math.min(hovered.x, winW - tipW - 8);
+        // flip above row if near bottom of screen
+        const spaceBelow = winH - hovered.y;
+        const tipTop = spaceBelow < 420 ? hovered.y - 420 : hovered.y + 8;
+        const allMetrics: { key: string; label: string; val: number }[] = [
+          { key: "likes",    label: "Likes",    val: hovPost?.likes ?? 0 },
+          { key: "comments", label: "Comments", val: hovPost?.comments ?? 0 },
+          { key: "shares",   label: "Shares",   val: hovPost?.shares ?? 0 },
+          { key: "views",    label: "Views",    val: hovPost?.views ?? 0 },
+          { key: "saves",    label: "Saves",    val: hovPost?.saves ?? 0 },
+          { key: "impressions", label: "Impressions", val: hovPost?.impressions ?? 0 },
+        ].filter(({ val }) => val > 0);
         return (
-          <div
-            style={{
-              position: "fixed",
-              left: Math.min(hovered.x, (typeof window !== "undefined" ? window.innerWidth : 800) - 300),
-              top: hovered.y + 8,
-              width: 290,
-              background: "#111",
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-              padding: 14,
-              zIndex: 1000,
-              pointerEvents: "none",
-              boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
-            }}
-          >
-            {hovPost && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 700, color: pColor, marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {hovPost.title || "—"}
-                </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10 }}>
-                  {PLATFORM_LABELS[hovered.platform]} · {hovPost.createdAt ? hovPost.createdAt.slice(0, 10) : "—"}
-                </div>
-              </>
+          <div style={{
+            position: "fixed",
+            left: tipLeft,
+            top: tipTop,
+            width: tipW,
+            background: "#111",
+            border: "1px solid var(--border)",
+            borderRadius: 12,
+            overflow: "hidden",
+            zIndex: 1000,
+            pointerEvents: "none",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+          }}>
+            {/* Thumbnail */}
+            {hovPost?.imageUrl && (
+              <img
+                src={hovPost.imageUrl}
+                alt=""
+                style={{ width: "100%", height: 140, objectFit: "cover", display: "block" }}
+              />
             )}
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>{colLabel[hovered.col] ?? hovered.col}</div>
-              <div style={{ fontSize: 26, fontWeight: 800, color: pColor }}>
-                {hovPost ? formatCompactNumber(getVal(hovPost, hovered.col)) : "—"}
+            <div style={{ padding: 14 }}>
+              {/* Platform + date */}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: pColor, flexShrink: 0 }} />
+                <span style={{ fontSize: 11, color: pColor, fontWeight: 700 }}>{PLATFORM_LABELS[hovered.platform]}</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>·</span>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  {hovPost?.createdAt ? new Date(hovPost.createdAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                </span>
               </div>
-            </div>
-            {hoveredDailyData.length > 0 && (
-              <>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>{colLabel[hovered.col] ?? hovered.col} by day</div>
-                <ResponsiveContainer width="100%" height={80}>
-                  <LineChart data={hoveredDailyData} margin={{ left: 0, right: 4, top: 2, bottom: 0 }}>
-                    <XAxis dataKey="day" hide />
-                    <YAxis hide />
-                    <Tooltip
-                      contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
-                      formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
-                      labelFormatter={(l: string) => l}
-                    />
-                    <Line type="monotone" dataKey="value" stroke={pColor} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </>
-            )}
-            {hovPost && otherCols.length > 0 && (
-              <div style={{ display: "flex", gap: 10, marginTop: 10, paddingTop: 8, borderTop: "1px solid var(--border)" }}>
-                {otherCols.map((col) => (
-                  <div key={col} style={{ flex: 1 }}>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 2 }}>{colLabel[col] ?? col}</div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{formatCompactNumber(getVal(hovPost, col))}</div>
+
+              {/* Title / caption */}
+              {hovPost?.title && (
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#fff", marginBottom: 12, lineHeight: 1.5, maxHeight: 54, overflow: "hidden" }}>
+                  {hovPost.title}
+                </div>
+              )}
+
+              {/* All metrics grid */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
+                {allMetrics.map(({ key, label, val }) => (
+                  <div key={key} style={{ background: key === hovered.col ? pColor + "22" : "rgba(255,255,255,0.04)", borderRadius: 6, padding: "6px 8px" }}>
+                    <div style={{ fontSize: 9, color: key === hovered.col ? pColor : "var(--text-muted)", fontWeight: 600, marginBottom: 2, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: key === hovered.col ? pColor : "#fff" }}>{formatCompactNumber(val)}</div>
                   </div>
                 ))}
               </div>
-            )}
+
+              {/* Trend chart */}
+              {hoveredDailyData.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>
+                    {colLabel[hovered.col] ?? hovered.col} by day
+                  </div>
+                  <ResponsiveContainer width="100%" height={70}>
+                    <LineChart data={hoveredDailyData} margin={{ left: 0, right: 4, top: 2, bottom: 0 }}>
+                      <XAxis dataKey="day" hide />
+                      <YAxis hide />
+                      <Tooltip
+                        contentStyle={{ background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
+                        formatter={(v: number) => [formatCompactNumber(v), colLabel[hovered.col] ?? hovered.col]}
+                        labelFormatter={(l: string) => l}
+                      />
+                      <Line type="monotone" dataKey="value" stroke={pColor} strokeWidth={2} dot={false} activeDot={{ r: 3 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </>
+              )}
+            </div>
           </div>
         );
       })()}
