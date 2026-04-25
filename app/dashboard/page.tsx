@@ -971,6 +971,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
         const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
         Object.entries(drivers).forEach(([day, posts]) => {
           if (day < cut) return;
+          if (day > capDate) return;
           if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
           map[day].count += posts.length;
           map[day].value += posts.reduce((s, post) => s + (post[metric] as number), 0);
@@ -980,6 +981,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
         // Use performanceTrend (daily reach/views) for each platform
         (data.platforms[p].performanceTrend ?? []).forEach(({ day, value }) => {
           if (day < cut) return;
+          if (day > capDate) return;
           if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
           map[day].value += value;
           if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
@@ -988,6 +990,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
         // followers: use followersTrend delta (show absolute value)
         (data.platforms[p].followersTrend ?? []).forEach(({ day, value }) => {
           if (day < cut) return;
+          if (day > capDate) return;
           if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
           map[day].value += value;
           if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
@@ -995,7 +998,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
       }
     });
     return map;
-  }, [data, metric, days]);
+  }, [data, metric, days, endDate]);
 
   const maxValue = useMemo(() => Math.max(1, ...Object.values(calendarMap).map((v) => v.value)), [calendarMap]);
 
