@@ -1246,7 +1246,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
 
       {/* ── Post Activity Table ─────────────────────────────────────── */}
       {(() => {
-        // Collect posts with their first-seen date from activityDrivers
+        // Key: "platform_postId" to avoid cross-platform ID collisions
         const postFirstDate: Record<string, string> = {};
         const postPlatform: Record<string, Platform> = {};
         const postMeta: Record<string, TopPost> = {};
@@ -1258,10 +1258,11 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
           Object.entries(drivers).sort(([a], [b]) => a.localeCompare(b)).forEach(([day, posts]) => {
             if (day < cut || day > cap) return;
             posts.forEach((post) => {
-              if (!postFirstDate[post.id]) {
-                postFirstDate[post.id] = day;
-                postPlatform[post.id] = p;
-                postMeta[post.id] = post;
+              const key = `${p}_${post.id}`;
+              if (!postFirstDate[key]) {
+                postFirstDate[key] = day;
+                postPlatform[key] = p;
+                postMeta[key] = post;
               }
             });
           });
@@ -1274,18 +1275,19 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
           )
         )).filter((d) => d >= cut && d <= cap).sort();
 
-        const postIds = Object.keys(postFirstDate);
-        if (postIds.length === 0 || activeDates.length === 0) return null;
+        const rowKeys = Object.keys(postFirstDate);
+        if (rowKeys.length === 0 || activeDates.length === 0) return null;
 
-        // Build lookup: postId -> { [date]: TopPost (full metrics) }
+        // Build lookup: "platform_postId" -> { [date]: TopPost }
         const postDateData: Record<string, Record<string, TopPost>> = {};
         (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
           const drivers = (data.platforms[p].activityDrivers ?? {}) as { [d: string]: TopPost[] };
           Object.entries(drivers).forEach(([day, posts]) => {
             if (day < cut || day > cap) return;
             posts.forEach((post) => {
-              if (!postDateData[post.id]) postDateData[post.id] = {};
-              postDateData[post.id][day] = post;
+              const key = `${p}_${post.id}`;
+              if (!postDateData[key]) postDateData[key] = {};
+              postDateData[key][day] = post;
             });
           });
         });
@@ -1298,21 +1300,24 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
           return 0;
         };
 
-        // Sort posts by total metric desc
-        postIds.sort((a, b) => {
-          const aTotal = Object.values(postDateData[a] ?? {}).reduce((s, v) => s + getVal(v), 0);
-          const bTotal = Object.values(postDateData[b] ?? {}).reduce((s, v) => s + getVal(v), 0);
-          return bTotal - aTotal;
+        // Grand totals per row
+        const grandTotals: Record<string, number> = {};
+        rowKeys.forEach((key) => {
+          grandTotals[key] = Object.values(postDateData[key] ?? {}).reduce((s, v) => s + getVal(v), 0);
         });
 
-        // Max value for heatmap scaling
-        const maxVal = Math.max(1, ...postIds.flatMap((id) =>
-          Object.values(postDateData[id] ?? {}).map(getVal)
+        // Sort by grand total desc
+        rowKeys.sort((a, b) => grandTotals[b] - grandTotals[a]);
+
+        // Max cell value for heatmap scaling
+        const maxVal = Math.max(1, ...rowKeys.flatMap((key) =>
+          Object.values(postDateData[key] ?? {}).map(getVal)
         ));
 
         const CELL_W = 38;
-        const NAME_W = 220;
-        const DATE_W = 72;
+        const TOTAL_W = 60;
+        const NAME_W = 200;
+        const DATE_W = 64;
 
         return (
           <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
@@ -1322,34 +1327,42 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
             <div style={{ overflowX: "auto" }}>
               <table style={{ borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed" }}>
                 <colgroup>
+                  <col style={{ width: TOTAL_W }} />
                   <col style={{ width: NAME_W }} />
                   <col style={{ width: DATE_W }} />
                   {activeDates.map((d) => <col key={d} style={{ width: CELL_W }} />)}
                 </colgroup>
                 <thead>
                   <tr>
-                    <th style={{ position: "sticky", left: 0, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px 5px 0", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
+                    <th style={{ position: "sticky", left: 0, background: "#0a0a0a", zIndex: 2, textAlign: "right", padding: "5px 8px", color: "var(--accent)", fontWeight: 700, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)", whiteSpace: "nowrap", fontSize: 10 }}>
+                      Total
+                    </th>
+                    <th style={{ position: "sticky", left: TOTAL_W, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px 5px 4px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)" }}>
                       Post
                     </th>
-                    <th style={{ position: "sticky", left: NAME_W, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)", whiteSpace: "nowrap" }}>
+                    <th style={{ position: "sticky", left: TOTAL_W + NAME_W, background: "#0a0a0a", zIndex: 2, textAlign: "left", padding: "5px 8px", color: "var(--text-muted)", fontWeight: 600, borderBottom: "1px solid var(--border)", borderRight: "1px solid var(--border)", whiteSpace: "nowrap" }}>
                       Post Date
                     </th>
                     {activeDates.map((d) => (
-                      <th key={d} style={{ textAlign: "center", padding: "5px 2px", color: "var(--text-muted)", fontWeight: 500, borderBottom: "1px solid var(--border)", fontSize: 9, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      <th key={d} style={{ textAlign: "center", padding: "5px 2px", color: "var(--text-muted)", fontWeight: 500, borderBottom: "1px solid var(--border)", fontSize: 9, whiteSpace: "nowrap", overflow: "hidden" }}>
                         {new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {postIds.map((postId, idx) => {
-                    const plat = postPlatform[postId];
-                    const post = postMeta[postId];
-                    const firstDate = postFirstDate[postId];
+                  {rowKeys.map((rowKey, idx) => {
+                    const plat = postPlatform[rowKey];
+                    const post = postMeta[rowKey];
+                    const firstDate = postFirstDate[rowKey];
                     const rowBg = idx % 2 === 0 ? "#0a0a0a" : "#0d0d0d";
+                    const total = grandTotals[rowKey];
                     return (
-                      <tr key={postId}>
-                        <td style={{ position: "sticky", left: 0, background: rowBg, zIndex: 1, padding: "5px 8px 5px 0", borderRight: "1px solid var(--border)", maxWidth: NAME_W }}>
+                      <tr key={rowKey}>
+                        <td style={{ position: "sticky", left: 0, background: rowBg, zIndex: 1, padding: "5px 8px", borderRight: "1px solid var(--border)", textAlign: "right", color: "var(--accent)", fontWeight: 700, fontSize: 11, whiteSpace: "nowrap" }}>
+                          {formatCompactNumber(total)}
+                        </td>
+                        <td style={{ position: "sticky", left: TOTAL_W, background: rowBg, zIndex: 1, padding: "5px 8px 5px 4px", borderRight: "1px solid var(--border)", maxWidth: NAME_W, overflow: "hidden" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
                             <span style={{ flexShrink: 0, width: 7, height: 7, borderRadius: "50%", background: PLATFORM_COLORS[plat], display: "inline-block" }} />
                             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "#ccc" }}>
@@ -1357,23 +1370,16 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
                             </span>
                           </div>
                         </td>
-                        <td style={{ position: "sticky", left: NAME_W, background: rowBg, zIndex: 1, padding: "5px 8px", borderRight: "1px solid var(--border)", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 10 }}>
+                        <td style={{ position: "sticky", left: TOTAL_W + NAME_W, background: rowBg, zIndex: 1, padding: "5px 8px", borderRight: "1px solid var(--border)", color: "var(--text-muted)", whiteSpace: "nowrap", fontSize: 10 }}>
                           {new Date(firstDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </td>
                         {activeDates.map((d) => {
-                          const cellPost = postDateData[postId]?.[d];
+                          const cellPost = postDateData[rowKey]?.[d];
                           const val = cellPost ? getVal(cellPost) : 0;
                           const intensity = val > 0 ? Math.max(0.15, val / maxVal) : 0;
                           const bg = val > 0 ? `rgba(255,107,53,${intensity})` : "transparent";
                           return (
-                            <HeatCell
-                              key={d}
-                              val={val}
-                              bg={bg}
-                              post={cellPost ?? null}
-                              metric={metric}
-                              date={d}
-                            />
+                            <HeatCell key={d} val={val} bg={bg} post={cellPost ?? null} metric={metric} date={d} />
                           );
                         })}
                       </tr>
