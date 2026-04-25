@@ -650,6 +650,7 @@ function SummaryTile({
   metric?: MetricKey;
   includeZero?: boolean;
   days?: number;
+  endDate?: string;
   allData?: DashboardPayload;
 }) {
   const color = PLATFORM_COLORS[summary.platform];
