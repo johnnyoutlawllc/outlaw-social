@@ -1325,14 +1325,7 @@ function AllTopPostsCard({ data, days = 365, metric = "reach" }: { data: Dashboa
       {hovered && (() => {
         const hovPost = allPosts.find((p) => p.id === hovered.postId && p.platform === hovered.platform);
         const pColor = PLATFORM_COLORS[hovered.platform];
-        const otherCols = (["likes", "comments", "shares", "secondary"] as string[]).filter((c) => c !== hovered.col);
-        const getVal = (post: TopPost & { platform: Platform }, col: string) => {
-          if (col === "likes") return post.likes;
-          if (col === "comments") return post.comments;
-          if (col === "shares") return post.shares;
-          if (col === "secondary") return secondaryVal(post.platform, post);
-          return 0;
-        };
+
         const winW = typeof window !== "undefined" ? window.innerWidth : 800;
         const winH = typeof window !== "undefined" ? window.innerHeight : 600;
         const tipW = 320;
