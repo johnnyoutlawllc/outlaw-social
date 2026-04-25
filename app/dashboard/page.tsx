@@ -586,9 +586,11 @@ function MiniSparkline({ data, color, includeZero = true, activityDrivers, metri
             <Tooltip
               cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
               wrapperStyle={{ zIndex: 200 }}
-              content={(props) => (
+              content={(rProps) => (
                 <ChartDayTooltip
-                  {...props}
+                  active={rProps.active}
+                  label={String(rProps.label ?? "")}
+                  payload={rProps.payload as Array<{ value?: number; dataKey?: string; color?: string; name?: string }>}
                   metric={metric}
                   dayPostsFn={(day) => {
                     const posts = (activityDrivers[day] ?? []) as TopPost[];
@@ -818,7 +820,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
       });
     });
     return filterTrendDays(Object.values(map).sort((a, b) => a.day.localeCompare(b.day)), days, endDate);
-  }, [data, allData, metric, days]);
+  }, [data, allData, metric, days, endDate]);
 
   const yDomain = useMemo(
     () => getNumericDomain(
@@ -847,7 +849,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
       delta += pts.slice(half).reduce((s, pt) => s + pt.value, 0) - pts.slice(0, half).reduce((s, pt) => s + pt.value, 0);
     });
     return { total, delta };
-  }, [allData, metric, days]);
+  }, [allData, metric, days, endDate]);
 
   const metricLabel: Record<MetricKey, string> = { followers: "total followers", reach: "total reach / views", likes: "total likes", comments: "total comments", shares: "total shares" };
 
@@ -872,7 +874,7 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
       { key: "shares",    label: "Shares",    val: engTotals.shares },
     ];
     return all.filter(({ key }) => key !== metric);
-  }, [allData, metric, days]);
+  }, [allData, metric, days, endDate]);
 
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
@@ -911,9 +913,11 @@ function CombinedTrendTile({ data, allData, includeZero = true, metric = "follow
             <Tooltip
               cursor={{ stroke: "rgba(255,255,255,0.15)", strokeWidth: 1 }}
               wrapperStyle={{ zIndex: 200 }}
-              content={(tooltipProps) => (
+              content={(rProps) => (
                 <ChartDayTooltip
-                  {...tooltipProps}
+                  active={rProps.active}
+                  label={String(rProps.label ?? "")}
+                  payload={rProps.payload as Array<{ value?: number; dataKey?: string; color?: string; name?: string }>}
                   metric={metric}
                   dayPostsFn={(day) => {
                     const merged: (TopPost & { platform: Platform })[] = [];
@@ -1265,7 +1269,7 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
       return sortDir === "desc" ? bv - av : av - bv;
     });
     return combined;
-  }, [data, active, sortBy, sortDir, days]);
+  }, [data, active, sortBy, sortDir, days, endDate]);
 
   // Build per-day data for a given post + column metric
   const hoveredDailyData = useMemo(() => {
