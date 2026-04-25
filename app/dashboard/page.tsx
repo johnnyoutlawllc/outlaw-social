@@ -655,7 +655,7 @@ function SummaryTile({
       })()}
 
       {(() => {
-        const posts = allData?.platforms[summary.platform]?.topPosts ?? [];
+        const posts = filterPostDays(allData?.platforms[summary.platform]?.topPosts ?? [], days);
         const engTotal = (field: "likes" | "comments" | "shares") =>
           posts.reduce((s, p) => s + (p[field] as number), 0);
         const reachTotal = filterDays(summary.performanceTrend, days).reduce((s, p) => s + p.value, 0);
