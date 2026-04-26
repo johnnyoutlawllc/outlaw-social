@@ -47,7 +47,20 @@ function buildEngRateTrend(drivers: { [k: string]: TopPost[] }, perf: DataPoint[
   });
   return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => ({ day, value }));
 }
-type TabKey = "all" | Platform;
+type TabKey = "all" | Platform | "webtraffic";
+
+type WebTrafficKeyEvent = { label: string; count: number };
+type WebSiteStats = {
+  label: string;
+  url: string;
+  totalSessions: number;
+  uniqueUsers: number;
+  avgDurationMin: number;
+  keyEvents: WebTrafficKeyEvent[];
+  deviceBreakdown: { device: string; count: number }[];
+};
+type WebDailyPoint = { day: string; sf: number; six: number };
+type WebTrafficPayload = { sites: WebSiteStats[]; dailyTrend: WebDailyPoint[] };
 
 type DataPoint = {
   day: string;
@@ -2992,6 +3005,131 @@ function MetricDropdown({ value, onChange }: { value: MetricKey; onChange: (m: M
   );
 }
 
+
+// ── Web Traffic Tab ──────────────────────────────────────────────────────────
+const SITE_COLORS: Record<string, string> = {
+  Shutterfield: "#ff6b35",
+  SixGuess: "#6bb5ff",
+};
+
+function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "var(--text-muted)", fontSize: 14 }}>
+        Loading web traffic…
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div style={{ color: "var(--text-muted)", fontSize: 14, padding: 24 }}>Failed to load web traffic data.</div>
+    );
+  }
+
+  const { sites, dailyTrend } = data;
+  const sfColor = SITE_COLORS["Shutterfield"];
+  const sixColor = SITE_COLORS["SixGuess"];
+
+  return (
+    <div style={{ display: "grid", gap: 20 }}>
+      {/* ── Site Cards ─────────────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+        {sites.map((site) => {
+          const color = SITE_COLORS[site.label] ?? "var(--accent)";
+          return (
+            <div key={site.label} style={{ background: "var(--card-bg)", borderRadius: 14, padding: "20px 22px", border: "1px solid var(--border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>{site.label}</div>
+                  <a href={site.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: color, textDecoration: "none" }}>{site.url.replace("https://", "")}</a>
+                </div>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
+              </div>
+
+              {/* KPI row */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 16 }}>
+                {[
+                  { label: "Sessions", value: site.totalSessions.toLocaleString() },
+                  { label: "Unique Users", value: site.uniqueUsers.toLocaleString() },
+                  { label: "Avg Duration", value: `${site.avgDurationMin}m` },
+                ].map(({ label, value }) => (
+                  <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "10px 10px" }}>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{value}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Key events */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {site.keyEvents.map(({ label, count }) => (
+                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{label}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{count.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Device breakdown */}
+              {site.deviceBreakdown.length > 0 && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Devices</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {site.deviceBreakdown.map(({ device, count }) => (
+                      <div key={device} style={{ fontSize: 11, color: "var(--text-muted)", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "3px 8px" }}>
+                        {device} <span style={{ color: "#fff", fontWeight: 700 }}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* ── Daily Sessions Trend ────────────────────────────────────── */}
+      <div style={{ background: "var(--card-bg)", borderRadius: 14, padding: "20px 22px", border: "1px solid var(--border)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>Daily Sessions</div>
+          <div style={{ display: "flex", gap: 16 }}>
+            {sites.map((s) => (
+              <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
+                <div style={{ width: 10, height: 2, background: SITE_COLORS[s.label] ?? "var(--accent)", borderRadius: 2 }} />
+                {s.label}
+              </div>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={dailyTrend} margin={{ left: 0, right: 8, top: 4, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+            <XAxis
+              dataKey="day"
+              tick={{ fontSize: 10, fill: "var(--text-muted)" }}
+              tickFormatter={(v: string) => v.slice(5)}
+              interval="preserveStartEnd"
+            />
+            <YAxis tick={{ fontSize: 10, fill: "var(--text-muted)" }} width={32} />
+            <Tooltip
+              contentStyle={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: "var(--text-muted)", marginBottom: 4 }}
+              formatter={(value: number, name: string) => [value, name === "sf" ? "Shutterfield" : "SixGuess"]}
+            />
+            <Line type="monotone" dataKey="sf" stroke={sfColor} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="six" stroke={sixColor} strokeWidth={2} dot={false} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* ── Deadwax note ─────────────────────────────────────────────── */}
+      <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "12px 16px", border: "1px solid var(--border)", fontSize: 12, color: "var(--text-muted)" }}>
+        <span style={{ color: "#fff", fontWeight: 600 }}>Deadwax</span> — analytics not available in this DB. Deadwax uses a separate Supabase project (iotaconsult).
+      </div>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const kpiGridRef = useRef<HTMLDivElement>(null);
@@ -3010,6 +3148,8 @@ export default function DashboardPage() {
   const [globalMetric, setGlobalMetric] = useState<MetricKey>("interactions");
   const [globalDays, setGlobalDays] = useState(30);
   const [globalEndDate, setGlobalEndDate] = useState("");
+  const [webTrafficData, setWebTrafficData] = useState<WebTrafficPayload | null>(null);
+  const [webTrafficLoading, setWebTrafficLoading] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -3050,9 +3190,19 @@ export default function DashboardPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== "webtraffic") return;
+    if (webTrafficData) return; // already loaded
+    setWebTrafficLoading(true);
+    fetch("/api/web-traffic", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d: WebTrafficPayload) => { setWebTrafficData(d); setWebTrafficLoading(false); })
+      .catch(() => setWebTrafficLoading(false));
+  }, [activeTab, webTrafficData]);
+
   const selectedDetail = useMemo(() => {
-    if (!data || activeTab === "all") return null;
-    return data.platforms[activeTab];
+    if (!data || activeTab === "all" || activeTab === "webtraffic") return null;
+    return data.platforms[activeTab as Platform];
   }, [activeTab, data]);
 
   const followerSummary = useMemo(() => {
@@ -3104,7 +3254,7 @@ export default function DashboardPage() {
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
-        {(["all", "facebook", "instagram", "tiktok"] as TabKey[]).map((tab) => (
+        {(["all", "facebook", "instagram", "tiktok", "webtraffic"] as TabKey[]).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -3120,7 +3270,7 @@ export default function DashboardPage() {
               fontWeight: 700,
             }}
           >
-            {tab === "all" ? "All Platforms" : PLATFORM_LABELS[tab]}
+            {tab === "all" ? "All Platforms" : tab === "webtraffic" ? "Web Traffic" : PLATFORM_LABELS[tab as Platform]}
           </button>
         ))}
       </div>
@@ -3152,6 +3302,8 @@ export default function DashboardPage() {
           <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} endDate={globalEndDate} onMetricChange={setGlobalMetric} />
           <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} endDate={globalEndDate} />
         </>
+      ) : activeTab === "webtraffic" ? (
+        <WebTrafficTab data={webTrafficData} loading={webTrafficLoading} />
       ) : selectedDetail ? (
         <div style={{ display: "grid", gap: 20 }}>
           <PlatformSection detail={selectedDetail} />
