@@ -1698,8 +1698,25 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
             fontSize: 12,
           }}>
             <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatShortDate(calHov.date)}</div>
-            <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: 10, fontSize: 13 }}>
-              {formatCompactNumber(calendarMap[calHov.date]?.value ?? 0)} total {metricLabel}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 13 }}>
+                {formatCompactNumber(calendarMap[calHov.date]?.value ?? 0)} total {metricLabel}
+              </div>
+              {metric === "interactions" && allDayPosts.length > 0 && (() => {
+                const lk = allDayPosts.reduce((s, p) => s + (p.likes ?? 0), 0);
+                const cm = allDayPosts.reduce((s, p) => s + (p.comments ?? 0), 0);
+                const sh = allDayPosts.reduce((s, p) => s + (p.shares ?? 0), 0);
+                return (
+                  <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+                    {[["Likes", lk], ["Cmts", cm], ["Shares", sh]].map(([lbl, v]) => (
+                      <div key={String(lbl)} style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                        <span>{lbl} </span>
+                        <span style={{ color: "#ddd", fontWeight: 700 }}>{formatCompactNumber(Number(v))}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </div>
             {(hovPosts ?? []).length > 0 && allDayPosts.map((post) => {
               const val = getMetricVal(post);
@@ -2990,7 +3007,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
   const [globalIncludeZero, setGlobalIncludeZero] = useState(false);
-  const [globalMetric, setGlobalMetric] = useState<MetricKey>("reach");
+  const [globalMetric, setGlobalMetric] = useState<MetricKey>("interactions");
   const [globalDays, setGlobalDays] = useState(30);
   const [globalEndDate, setGlobalEndDate] = useState("");
 
