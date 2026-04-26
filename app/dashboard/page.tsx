@@ -1081,7 +1081,7 @@ function HeatCell({ val, bg, post, metric, date, platform, sparks }: {
 }
 
 // ---- Posting Calendar ----
-function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" }: { data: DashboardPayload; metric?: MetricKey; days?: number; endDate?: string }) {
+function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "", onMetricChange }: { data: DashboardPayload; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
   const [tableSortCol, setTableSortCol] = useState<string>("total");
   const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("desc");
@@ -1403,7 +1403,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
         });
 
         // Sort rows
-        const sortedRowKeys = [...rowKeys];
+        const sortedRowKeys = [...rowKeys].filter((key) => grandTotals[key] > 0);
         sortedRowKeys.sort((a, b) => {
           let av: number | string = 0, bv: number | string = 0;
           if (tableSortCol === "total") { av = grandTotals[a]; bv = grandTotals[b]; }
@@ -1433,8 +1433,22 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "" 
 
         return (
           <div style={{ marginTop: 24, borderTop: "1px solid var(--border)", paddingTop: 20 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12, color: "#fff" }}>
-              {tableTitle}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{tableTitle}</div>
+              {onMetricChange && (
+                <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: 3 }}>
+                  {(["shares", "likes", "comments", "reach"] as MetricKey[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => onMetricChange(m)}
+                      style={{ padding: "4px 10px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: metric === m ? "var(--accent)" : "transparent", color: metric === m ? "#fff" : "var(--text-muted)", transition: "all 0.15s", textTransform: "capitalize" }}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div ref={tableContainerRef}>
               <table style={{ borderCollapse: "collapse", fontSize: 11, tableLayout: "fixed", width: "100%" }}>
@@ -2756,6 +2770,15 @@ function DateRangeFilter({ globalDays, onDaysChange, endDate, onEndDateChange }:
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const kpiGridRef = useRef<HTMLDivElement>(null);
+  const [kpiGridW, setKpiGridW] = useState(1200);
+  useEffect(() => {
+    const el = kpiGridRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setKpiGridW(e.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("all");
@@ -2895,9 +2918,10 @@ export default function DashboardPage() {
             <DateRangeFilter globalDays={globalDays} onDaysChange={setGlobalDays} endDate={globalEndDate} onEndDateChange={setGlobalEndDate} />
           </div>
           <div
+            ref={kpiGridRef}
             style={{
               display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)",
+              gridTemplateColumns: kpiGridW < 640 ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
               gap: 16,
               marginBottom: 24,
             }}
@@ -2907,7 +2931,7 @@ export default function DashboardPage() {
             ))}
             <CombinedTrendTile data={data.trend} allData={data} includeZero={globalIncludeZero} metric={globalMetric} days={globalDays} endDate={globalEndDate} onMetricChange={setGlobalMetric} />
           </div>
-          <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} endDate={globalEndDate} />
+          <PostingCalendarCard data={data} metric={globalMetric} days={globalDays} endDate={globalEndDate} onMetricChange={setGlobalMetric} />
           <AllTopPostsCard data={data} days={globalDays} metric={globalMetric} endDate={globalEndDate} />
         </>
       ) : selectedDetail ? (
