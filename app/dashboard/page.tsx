@@ -1620,8 +1620,8 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
               const val = getVal(post);
               return (
                 <div key={post.id} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>
-                  {post.thumbnailUrl && (
-                    <img src={post.thumbnailUrl} alt="" style={{ width: "100%", borderRadius: 6, marginBottom: 6, objectFit: "cover", maxHeight: 80 }} />
+                  {post.imageUrl && (
+                    <img src={post.imageUrl} alt="" style={{ width: "100%", borderRadius: 6, marginBottom: 6, objectFit: "cover", maxHeight: 80 }} />
                   )}
                   <div style={{ color: "#ccc", fontSize: 11, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", marginBottom: 4 }}>
                     {post.title || "Untitled"}
