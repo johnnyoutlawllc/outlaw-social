@@ -1083,6 +1083,23 @@ function HeatCell({ val, bg, post, metric, date, platform, sparks }: {
 // ---- Posting Calendar ----
 function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "", onMetricChange }: { data: DashboardPayload; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
   const [calHov, setCalHov] = useState<{ date: string; x: number; y: number } | null>(null);
+  const [pubHov, setPubHov] = useState<{ date: string; platform: Platform; x: number; y: number } | null>(null);
+  const pubMap = useMemo(() => {
+    const map: Partial<Record<Platform, Record<string, TopPost[]>>> = {};
+    const cut = days < 365 ? getCutoff(days) : "0000-00-00";
+    const cap = endDate || "9999-99-99";
+    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
+      const platMap: Record<string, TopPost[]> = {};
+      (data.platforms[p].topPosts ?? []).forEach((post) => {
+        const d = post.createdAt?.slice(0, 10) ?? "";
+        if (!d || d < cut || d > cap) return;
+        if (!platMap[d]) platMap[d] = [];
+        platMap[d].push(post);
+      });
+      map[p] = platMap;
+    });
+    return map;
+  }, [data, days, endDate]);
   const [tableSortCol, setTableSortCol] = useState<string>("total");
   const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("desc");
   const [nameColW, setNameColW] = useState(200);
@@ -1290,6 +1307,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
                       aspectRatio: "1",
                       borderRadius: 3,
                       background: bg,
+                      position: "relative",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
@@ -1299,6 +1317,31 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
                     }}
                   >
                     {cell.dayNum > 0 ? cell.dayNum : null}
+                    {(() => {
+                      const dots = (["facebook", "instagram", "tiktok"] as Platform[])
+                        .map(p => ({ p, posts: pubMap[p]?.[cell.date] ?? [] }))
+                        .filter(x => x.posts.length > 0);
+                      if (dots.length === 0) return null;
+                      const maxCount = Math.max(...dots.map(x => x.posts.length));
+                      return (
+                        <div
+                          style={{ position: "absolute", top: 2, right: 2, display: "flex", gap: 1, alignItems: "flex-end" }}
+                          onMouseEnter={(e) => { e.stopPropagation(); const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPubHov({ date: cell.date, platform: dots[0].p, x: r.left, y: r.bottom }); }}
+                          onMouseLeave={(e) => { e.stopPropagation(); setPubHov(null); }}
+                        >
+                          {dots.map(({ p, posts }) => {
+                            const sz = Math.max(4, Math.round(4 + (posts.length / maxCount) * 3));
+                            return (
+                              <div
+                                key={p}
+                                onMouseEnter={(e) => { e.stopPropagation(); const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPubHov({ date: cell.date, platform: p, x: r.left, y: r.bottom }); }}
+                                style={{ width: sz, height: sz, borderRadius: "50%", background: PLATFORM_COLORS[p], opacity: 0.8, flexShrink: 0 }}
+                              />
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
@@ -1542,6 +1585,59 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
         );
       })()}
 
+      {pubHov && (() => {
+        const posts = pubMap[pubHov.platform]?.[pubHov.date] ?? [];
+        if (posts.length === 0) return null;
+        const pColor = PLATFORM_COLORS[pubHov.platform];
+        const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric;
+        const getVal = (post: TopPost) => {
+          if (metric === "likes") return post.likes ?? 0;
+          if (metric === "comments") return post.comments ?? 0;
+          if (metric === "shares") return post.shares ?? 0;
+          return post.impressions ?? post.views ?? 0;
+        };
+        return (
+          <div style={{
+            position: "fixed",
+            left: Math.min(pubHov.x, (typeof window !== "undefined" ? window.innerWidth : 900) - 280),
+            top: pubHov.y + 8,
+            width: 260,
+            background: "#111",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: 14,
+            zIndex: 1001,
+            pointerEvents: "none",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+            fontSize: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: pColor, display: "inline-block", flexShrink: 0 }} />
+              <span style={{ fontWeight: 700, color: "#fff", textTransform: "capitalize" }}>{pubHov.platform}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>— posted {new Date(pubHov.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+            </div>
+            {posts.map((post) => {
+              const val = getVal(post);
+              return (
+                <div key={post.id} style={{ marginBottom: 8, paddingBottom: 8, borderBottom: "1px solid var(--border)" }}>
+                  {post.thumbnailUrl && (
+                    <img src={post.thumbnailUrl} alt="" style={{ width: "100%", borderRadius: 6, marginBottom: 6, objectFit: "cover", maxHeight: 80 }} />
+                  )}
+                  <div style={{ color: "#ccc", fontSize: 11, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", marginBottom: 4 }}>
+                    {post.title || "Untitled"}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, fontSize: 10, color: "var(--text-muted)" }}>
+                    <span>👍 {formatCompactNumber(post.likes ?? 0)}</span>
+                    <span>💬 {formatCompactNumber(post.comments ?? 0)}</span>
+                    <span>↗ {formatCompactNumber(post.shares ?? 0)}</span>
+                    {val > 0 && <span style={{ color: "var(--accent)", fontWeight: 700 }}>{formatCompactNumber(val)} {metricLabel}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
       {calHov && calendarMap[calHov.date] && (() => {
         // Flatten all posts for this day, sorted by selected metric desc
         const getMetricVal = (post: TopPost) => {
