@@ -15,7 +15,38 @@ import {
 } from "recharts";
 
 type Platform = "facebook" | "instagram" | "tiktok";
-type MetricKey = "followers" | "reach" | "likes" | "comments" | "shares";
+type MetricKey = "followers" | "reach" | "likes" | "comments" | "shares" | "interactions" | "engRate";
+function postMetricVal(post: TopPost, metric: MetricKey): number {
+  if (metric === "likes") return post.likes ?? 0;
+  if (metric === "comments") return post.comments ?? 0;
+  if (metric === "shares") return post.shares ?? 0;
+  if (metric === "reach") return post.impressions ?? post.views ?? 0;
+  if (metric === "interactions") return (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0);
+  if (metric === "engRate") {
+    const eng = (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0);
+    const reach = post.impressions ?? post.views ?? 1;
+    return reach > 0 ? Math.round((eng / reach) * 10000) / 100 : 0;
+  }
+  return 0;
+}
+function buildInteractionsTrend(drivers: { [k: string]: TopPost[] }): DataPoint[] {
+  const map: { [day: string]: number } = {};
+  Object.entries(drivers).forEach(([day, posts]) => {
+    map[day] = (map[day] ?? 0) + posts.reduce((s, p) => s + (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0), 0);
+  });
+  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => ({ day, value }));
+}
+function buildEngRateTrend(drivers: { [k: string]: TopPost[] }, perf: DataPoint[]): DataPoint[] {
+  const perfMap: { [day: string]: number } = {};
+  perf.forEach(({ day, value }) => { perfMap[day] = value; });
+  const map: { [day: string]: number } = {};
+  Object.entries(drivers).forEach(([day, posts]) => {
+    const eng = posts.reduce((s, p) => s + (p.likes ?? 0) + (p.comments ?? 0) + (p.shares ?? 0), 0);
+    const reach = perfMap[day] ?? 0;
+    map[day] = reach > 0 ? Math.round((eng / reach) * 10000) / 100 : 0;
+  });
+  return Object.entries(map).sort(([a], [b]) => a.localeCompare(b)).map(([day, value]) => ({ day, value }));
+}
 type TabKey = "all" | Platform;
 
 type DataPoint = {
@@ -518,6 +549,7 @@ function ChartDayTooltip({
   if (!active || !label) return null;
   const posts = dayPostsFn(label);
   const getVal = (post: TopPost): number => {
+    return postMetricVal(post, metric);
     if (metric === "likes") return post.likes ?? 0;
     if (metric === "comments") return post.comments ?? 0;
     if (metric === "shares") return post.shares ?? 0;
@@ -598,6 +630,7 @@ function MiniSparkline({ data, color, includeZero = true, activityDrivers, metri
                       .map((p) => ({ ...p, platform: (platform ?? "facebook") as Platform }))
                       .sort((a, b) => {
                         const v = (post: TopPost): number => {
+                          return postMetricVal(post, metric);
                           if (metric === "likes") return post.likes ?? 0;
                           if (metric === "comments") return post.comments ?? 0;
                           if (metric === "shares") return post.shares ?? 0;
@@ -698,14 +731,17 @@ function SummaryTile({
           bigLabel = "total reach / views";
         } else {
           const drivers = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
-          const trendPts = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
+          const perf = allData?.platforms[summary.platform]?.performanceTrend ?? [];
+          const trendPts = metric === "interactions" ? buildInteractionsTrend(drivers)
+            : metric === "engRate" ? buildEngRateTrend(drivers, perf)
+            : buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
           const pts = filterDays(trendPts, days, endDate);
           bigVal = pts.reduce((s, p) => s + p.value, 0);
           const half = Math.floor(pts.length / 2);
           const recent = pts.slice(half).reduce((s, p) => s + p.value, 0);
           const prior = pts.slice(0, half).reduce((s, p) => s + p.value, 0);
           bigDelta = recent - prior;
-          bigLabel = "total " + metric;
+          bigLabel = metric === "interactions" ? "total interactions" : metric === "engRate" ? "avg eng. rate %" : "total " + metric;
         }
         return (
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
@@ -728,7 +764,10 @@ function SummaryTile({
         else if (metric === "reach") sparkData = summary.performanceTrend;
         else {
           const drivers = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
-          sparkData = buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
+          const perf2 = allData?.platforms[summary.platform]?.performanceTrend ?? [];
+          sparkData = metric === "interactions" ? buildInteractionsTrend(drivers)
+            : metric === "engRate" ? buildEngRateTrend(drivers, perf2)
+            : buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
         }
         void engFields;
         return <MiniSparkline
@@ -746,12 +785,16 @@ function SummaryTile({
         const engTotal = (field: "likes" | "comments" | "shares") =>
           posts.reduce((s, p) => s + (p[field] as number), 0);
         const reachTotal = filterDays(summary.performanceTrend, days, endDate).reduce((s, p) => s + p.value, 0);
+        const interactionsVal = engTotal("likes") + engTotal("comments") + engTotal("shares");
+        const engRateVal = reachTotal > 0 ? Math.round((interactionsVal / reachTotal) * 10000) / 100 : 0;
         const allBottomMetrics: { key: MetricKey; label: string; val: number }[] = [
-          { key: "followers", label: "Followers", val: summary.latestFollowers },
-          { key: "reach",     label: "Reach",     val: reachTotal },
-          { key: "likes",     label: "Likes",     val: engTotal("likes") },
-          { key: "comments",  label: "Cmts",      val: engTotal("comments") },
-          { key: "shares",    label: "Shares",    val: engTotal("shares") },
+          { key: "followers",    label: "Followers",    val: summary.latestFollowers },
+          { key: "reach",        label: "Reach",        val: reachTotal },
+          { key: "interactions", label: "Interactions", val: interactionsVal },
+          { key: "engRate",      label: "Eng. Rate",    val: engRateVal },
+          { key: "likes",        label: "Likes",        val: engTotal("likes") },
+          { key: "comments",     label: "Cmts",         val: engTotal("comments") },
+          { key: "shares",       label: "Shares",       val: engTotal("shares") },
         ];
         const bottomMetrics = allBottomMetrics.filter(({ key }) => key !== metric);
         return (
@@ -809,10 +852,12 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
         source[p] = allData.platforms[p].performanceTrend ?? [];
       });
     } else {
-      const field = metric as "likes" | "comments" | "shares";
       (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
         const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
-        source[p] = buildMetricTrend(drivers, field);
+        const perf = allData.platforms[p].performanceTrend ?? [];
+        source[p] = metric === "interactions" ? buildInteractionsTrend(drivers)
+          : metric === "engRate" ? buildEngRateTrend(drivers, perf)
+          : buildMetricTrend(drivers, metric as "likes" | "comments" | "shares");
       });
     }
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
@@ -843,7 +888,13 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
       else if (metric === "reach") pts = filterDays(allData.platforms[p].performanceTrend ?? [], days, endDate);
       else {
         const drivers = (allData.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
-        pts = filterDays(buildMetricTrend(drivers, metric as "likes" | "comments" | "shares"), days, endDate);
+        const perf = allData.platforms[p].performanceTrend ?? [];
+        pts = filterDays(
+          metric === "interactions" ? buildInteractionsTrend(drivers)
+          : metric === "engRate" ? buildEngRateTrend(drivers, perf)
+          : buildMetricTrend(drivers, metric as "likes" | "comments" | "shares"),
+          days, endDate
+        );
       }
       const sum = pts.reduce((s, pt) => s + pt.value, 0);
       total += metric === "followers" ? (allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0) : sum;
@@ -853,7 +904,7 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
     return { total, delta };
   }, [allData, metric, days, endDate]);
 
-  const metricLabel: Record<MetricKey, string> = { followers: "total followers", reach: "total reach / views", likes: "total likes", comments: "total comments", shares: "total shares" };
+  const metricLabel: Record<MetricKey, string> = { followers: "total followers", reach: "total reach / views", likes: "total likes", comments: "total comments", shares: "total shares", interactions: "total interactions", engRate: "avg eng. rate %" };
 
   // Bottom stats: all metrics except selected
   const bottomTotals = useMemo(() => {
@@ -868,12 +919,16 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
       reachTotal += filterDays(allData.platforms[p].performanceTrend ?? [], days, endDate).reduce((s, pt) => s + pt.value, 0);
       followersTotal += allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0;
     });
+    const interactionsTotal = engTotals.likes + engTotals.comments + engTotals.shares;
+    const engRateTotal = reachTotal > 0 ? Math.round((interactionsTotal / reachTotal) * 10000) / 100 : 0;
     const all: { key: MetricKey; label: string; val: number }[] = [
-      { key: "followers", label: "Followers", val: followersTotal },
-      { key: "reach",     label: "Reach",     val: reachTotal },
-      { key: "likes",     label: "Likes",     val: engTotals.likes },
-      { key: "comments",  label: "Cmts",      val: engTotals.comments },
-      { key: "shares",    label: "Shares",    val: engTotals.shares },
+      { key: "followers",    label: "Followers",     val: followersTotal },
+      { key: "reach",        label: "Reach",         val: reachTotal },
+      { key: "interactions", label: "Interactions",  val: interactionsTotal },
+      { key: "engRate",      label: "Eng. Rate",     val: engRateTotal },
+      { key: "likes",        label: "Likes",         val: engTotals.likes },
+      { key: "comments",     label: "Cmts",          val: engTotals.comments },
+      { key: "shares",       label: "Shares",        val: engTotals.shares },
     ];
     return all.filter(({ key }) => key !== metric);
   }, [allData, metric, days, endDate]);
@@ -928,6 +983,7 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
                       (drivers[day] ?? []).forEach((post) => merged.push({ ...post, platform: p }));
                     });
                     const getV = (post: TopPost): number => {
+                      return postMetricVal(post, metric);
                       if (metric === "likes") return post.likes ?? 0;
                       if (metric === "comments") return post.comments ?? 0;
                       if (metric === "shares") return post.shares ?? 0;
@@ -1132,7 +1188,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
     const cut = days < 365 ? getCutoff(days) : "0000-00-00";
     const capDate = endDate || "9999-99-99";
     (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      if (metric === "likes" || metric === "comments" || metric === "shares") {
+      if (metric === "likes" || metric === "comments" || metric === "shares" || metric === "interactions" || metric === "engRate") {
         // Sum engagement metric per day from activity drivers
         const drivers = (data.platforms[p].activityDrivers ?? {}) as { [k: string]: TopPost[] };
         Object.entries(drivers).forEach(([day, posts]) => {
@@ -1140,7 +1196,14 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
           if (day > capDate) return;
           if (!map[day]) map[day] = { count: 0, value: 0, platforms: [] };
           map[day].count += posts.length;
-          map[day].value += posts.reduce((s, post) => s + (post[metric] as number), 0);
+          const dayEng = posts.reduce((s, post) => s + (post.likes ?? 0) + (post.comments ?? 0) + (post.shares ?? 0), 0);
+          if (metric === "interactions") {
+            map[day].value += dayEng;
+          } else if (metric === "engRate") {
+            map[day].value += dayEng; // normalized against reach below
+          } else {
+            map[day].value += posts.reduce((s, post) => s + (post[metric] as number), 0);
+          }
           if (!map[day].platforms.includes(p)) map[day].platforms.push(p);
         });
       } else if (metric === "reach") {
@@ -1224,10 +1287,12 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
           : metric === "likes" ? "Like Activity Calendar"
           : metric === "shares" ? "Share Activity Calendar"
           : metric === "reach" ? "Reach Calendar"
+          : metric === "interactions" ? "Interactions Calendar"
+          : metric === "engRate" ? "Engagement Rate Calendar"
           : "Follower Growth Calendar"}
       </h2>
       <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 20 }}>
-        {(metric === "likes" || metric === "comments" || metric === "shares") ? `Daily ${metric} across all platforms` : `Post activity across all platforms`}
+        {(metric === "likes" || metric === "comments" || metric === "shares" || metric === "interactions" || metric === "engRate") ? `Daily ${metric === "engRate" ? "engagement rate" : metric} across all platforms` : `Post activity across all platforms`}
         {" — "}{days >= 365 ? "all time" : days <= 7 ? "last 7 days" : days <= 30 ? "last 30 days" : `last ${days} days`}
       </p>
       {days <= 7 ? (
@@ -1355,7 +1420,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
         {[0, 0.25, 0.5, 0.75, 1].map((t) => (
           <div key={t} style={{ width: 12, height: 12, borderRadius: 2, background: t === 0 ? "rgba(255,255,255,0.04)" : "rgba(255,107,53," + Math.max(0.25, t) + ")" }} />
         ))}
-        <span>More {(metric === "likes" || metric === "comments" || metric === "shares") ? metric : "posts"}</span>
+        <span>More {(metric === "likes" || metric === "comments" || metric === "shares" || metric === "interactions") ? metric : metric === "engRate" ? "engagement" : "posts"}</span>
       </div>
 
 
@@ -1407,13 +1472,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
           });
         });
 
-        const getVal = (post: TopPost): number => {
-          if (metric === "likes") return post.likes ?? 0;
-          if (metric === "comments") return post.comments ?? 0;
-          if (metric === "shares") return post.shares ?? 0;
-          if (metric === "reach") return post.impressions ?? post.views ?? 0;
-          return 0;
-        };
+        const getVal = (post: TopPost): number => postMetricVal(post, metric);
 
         // Grand totals per row
         const grandTotals: Record<string, number> = {};
@@ -1458,7 +1517,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
           return 0;
         });
 
-        const metricTitles: Record<MetricKey, string> = { reach: "Reach", likes: "Likes", comments: "Comments", shares: "Shares", followers: "Followers" };
+        const metricTitles: Record<MetricKey, string> = { reach: "Reach", likes: "Likes", comments: "Comments", shares: "Shares", followers: "Followers", interactions: "Interactions", engRate: "Eng. Rate" };
         const tableTitle = `${metricTitles[metric] ?? metric} by Day`;
 
         const thStyle = (col: string): React.CSSProperties => ({
@@ -1480,7 +1539,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
               <div style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{tableTitle}</div>
               {onMetricChange && (
                 <div style={{ display: "flex", gap: 3, background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: 3 }}>
-                  {(["shares", "likes", "comments", "reach"] as MetricKey[]).map((m) => (
+                  {(["reach", "interactions", "engRate", "likes", "comments", "shares"] as MetricKey[]).map((m) => (
                     <button
                       key={m}
                       type="button"
@@ -1589,12 +1648,8 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
         const posts = pubMap[pubHov.platform]?.[pubHov.date] ?? [];
         if (posts.length === 0) return null;
         const pColor = PLATFORM_COLORS[pubHov.platform];
-        const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric;
-        const getVal = (post: TopPost) => {
-          if (metric === "likes") return post.likes ?? 0;
-          if (metric === "comments") return post.comments ?? 0;
-          if (metric === "shares") return post.shares ?? 0;
-          return post.impressions ?? post.views ?? 0;
+        const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric === "engRate" ? "eng. rate" : metric;
+        const getVal = (post: TopPost) => postMetricVal(post, metric);
         };
         return (
           <div style={{
@@ -2864,6 +2919,61 @@ function DateRangeFilter({ globalDays, onDaysChange, endDate, onEndDateChange }:
   );
 }
 
+function MetricDropdown({ value, onChange }: { value: MetricKey; onChange: (m: MetricKey) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+  const consolidated: { key: MetricKey; label: string }[] = [
+    { key: "reach",        label: "Reach" },
+    { key: "interactions", label: "Interactions" },
+    { key: "engRate",      label: "Engagement Rate" },
+  ];
+  const individual: { key: MetricKey; label: string }[] = [
+    { key: "followers", label: "Followers" },
+    { key: "likes",     label: "Likes" },
+    { key: "comments",  label: "Comments" },
+    { key: "shares",    label: "Shares" },
+  ];
+  const allMetrics = [...consolidated, ...individual];
+  const currentLabel = allMetrics.find(m => m.key === value)?.label ?? value;
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 14px", borderRadius: 8, border: "1px solid var(--border)", background: "rgba(255,255,255,0.04)", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}
+      >
+        <span style={{ color: "var(--accent)" }}>●</span>
+        {currentLabel}
+        <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 2 }}>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 200, background: "#1a1a1a", border: "1px solid var(--border)", borderRadius: 10, padding: "8px 0", minWidth: 180, boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", padding: "4px 14px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Consolidated</div>
+          {consolidated.map(({ key, label }) => (
+            <button key={key} type="button" onClick={() => { onChange(key); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", border: "none", background: value === key ? "rgba(255,107,53,0.15)" : "transparent", color: value === key ? "var(--accent)" : "#ccc", fontSize: 13, fontWeight: value === key ? 700 : 400, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+          <div style={{ height: 1, background: "var(--border)", margin: "6px 0" }} />
+          <div style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", padding: "4px 14px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Individual</div>
+          {individual.map(({ key, label }) => (
+            <button key={key} type="button" onClick={() => { onChange(key); setOpen(false); }}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "7px 14px", border: "none", background: value === key ? "rgba(255,107,53,0.15)" : "transparent", color: value === key ? "var(--accent)" : "#ccc", fontSize: 13, fontWeight: value === key ? 700 : 400, cursor: "pointer" }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const kpiGridRef = useRef<HTMLDivElement>(null);
@@ -3000,13 +3110,7 @@ export default function DashboardPage() {
       {activeTab === "all" ? (
         <>
           <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
-              {(["followers", "reach", "likes", "comments", "shares"] as MetricKey[]).map((m) => (
-                <button key={m} type="button" onClick={() => setGlobalMetric(m)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalMetric === m ? "var(--accent)" : "transparent", color: globalMetric === m ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>
-                  {m.charAt(0).toUpperCase() + m.slice(1)}
-                </button>
-              ))}
-            </div>
+            <MetricDropdown value={globalMetric} onChange={setGlobalMetric} />
             <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
               <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
               <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
