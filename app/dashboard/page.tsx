@@ -994,16 +994,19 @@ function HeatCell({ val, bg, post, metric, date, platform, sparks }: {
   const sparkEl = (() => {
     const nonZero = sparks.filter((s) => s.v > 0);
     if (nonZero.length < 2) return null;
-    const maxV = Math.max(1, ...sparks.map((s) => s.v));
+    // Trim leading zeros so chart starts at first active date
+    const firstIdx = sparks.findIndex((s) => s.v > 0);
+    const trimmed = firstIdx > 0 ? sparks.slice(firstIdx) : sparks;
+    const maxV = Math.max(1, ...trimmed.map((s) => s.v));
     const w = 186, h = 28;
-    const pts = sparks.map((s, i) => {
-      const x = sparks.length > 1 ? (i / (sparks.length - 1)) * w : w / 2;
+    const pts = trimmed.map((s, i) => {
+      const x = trimmed.length > 1 ? (i / (trimmed.length - 1)) * w : w / 2;
       const y = h - (s.v / maxV) * (h - 2) - 1;
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(" ");
-    const activeIdx = sparks.findIndex((s) => s.date === date);
-    const ax = activeIdx >= 0 && sparks.length > 1 ? (activeIdx / (sparks.length - 1)) * w : -999;
-    const ay = activeIdx >= 0 ? h - (sparks[activeIdx].v / maxV) * (h - 2) - 1 : 0;
+    const activeIdx = trimmed.findIndex((s) => s.date === date);
+    const ax = activeIdx >= 0 && trimmed.length > 1 ? (activeIdx / (trimmed.length - 1)) * w : -999;
+    const ay = activeIdx >= 0 ? h - (trimmed[activeIdx].v / maxV) * (h - 2) - 1 : 0;
     return (
       <svg width={w} height={h} style={{ display: "block", marginTop: 6 }}>
         <polyline points={pts} fill="none" stroke={pColor} strokeWidth={1.5} strokeLinejoin="round" opacity={0.7} />
