@@ -670,7 +670,7 @@ function MiniSparkline({ data, color, includeZero = true, activityDrivers, metri
 function SummaryTile({
   summary,
   onSelect,
-  onMetricChange,
+  onMetricChange: _onMetricChange,
   metric = "followers" as MetricKey,
   includeZero = true,
   days = 365,
@@ -686,6 +686,7 @@ function SummaryTile({
   endDate?: string;
   allData?: DashboardPayload;
 }) {
+  void _onMetricChange;
   const color = PLATFORM_COLORS[summary.platform];
   const sharedStyle = {
     padding: 22,
@@ -779,38 +780,6 @@ function SummaryTile({
             platform={summary.platform}
           />;
       })()}
-
-      {(() => {
-        const posts = filterPostDays(allData?.platforms[summary.platform]?.topPosts ?? [], days, endDate);
-        const engTotal = (field: "likes" | "comments" | "shares") =>
-          posts.reduce((s, p) => s + (p[field] as number), 0);
-        const reachTotal = filterDays(summary.performanceTrend, days, endDate).reduce((s, p) => s + p.value, 0);
-        const interactionsVal = engTotal("likes") + engTotal("comments") + engTotal("shares");
-        const engRateVal = reachTotal > 0 ? Math.round((interactionsVal / reachTotal) * 10000) / 100 : 0;
-        const allBottomMetrics: { key: MetricKey; label: string; val: number }[] = [
-          { key: "followers",    label: "Followers",    val: summary.latestFollowers },
-          { key: "reach",        label: "Reach",        val: reachTotal },
-          { key: "interactions", label: "Interactions", val: interactionsVal },
-          { key: "engRate",      label: "Eng. Rate",    val: engRateVal },
-          { key: "likes",        label: "Likes",        val: engTotal("likes") },
-          { key: "comments",     label: "Cmts",         val: engTotal("comments") },
-          { key: "shares",       label: "Shares",       val: engTotal("shares") },
-        ];
-        const bottomMetrics = allBottomMetrics.filter(({ key }) => key !== metric);
-        return (
-          <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "nowrap" }}>
-            {bottomMetrics.map(({ key, label, val }) => (
-              <div key={key}
-                onClick={(e) => { e.stopPropagation(); onMetricChange?.(key); }}
-                style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
-              >
-                <div style={{ color: "var(--text-muted)", fontSize: 8, marginBottom: 1 }}>{label}</div>
-                <div style={{ fontWeight: 700, fontSize: 13, transition: "color 0.1s" }}>{formatCompactNumber(val)}</div>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
     </>
   );
 
@@ -838,8 +807,9 @@ function SummaryTile({
   );
 }
 
-function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, endDate = "", onMetricChange }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
+function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = "followers" as MetricKey, days = 365, endDate = "", onMetricChange: _onMetricChangeCombined }: { data: TrendPoint[]; allData: DashboardPayload; includeZero?: boolean; metric?: MetricKey; days?: number; endDate?: string; onMetricChange?: (m: MetricKey) => void }) {
   void _data;
+  void _onMetricChangeCombined;
   const chartData = useMemo(() => {
     const map: { [day: string]: TrendPoint } = {};
     const source: { [p: string]: DataPoint[] } = {};
@@ -906,32 +876,6 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
 
   const metricLabel: Record<MetricKey, string> = { followers: "total followers", reach: "total reach / views", likes: "total likes", comments: "total comments", shares: "total shares", interactions: "total interactions", engRate: "avg eng. rate %" };
 
-  // Bottom stats: all metrics except selected
-  const bottomTotals = useMemo(() => {
-    const engTotals: { [k: string]: number } = { likes: 0, comments: 0, shares: 0 };
-    let reachTotal = 0;
-    let followersTotal = 0;
-    (["facebook", "instagram", "tiktok"] as Platform[]).forEach((p) => {
-      const posts = filterPostDays(allData.platforms[p].topPosts, days, endDate);
-      (["likes", "comments", "shares"] as const).forEach((f) => {
-        engTotals[f] += posts.reduce((s, post) => s + post[f], 0);
-      });
-      reachTotal += filterDays(allData.platforms[p].performanceTrend ?? [], days, endDate).reduce((s, pt) => s + pt.value, 0);
-      followersTotal += allData.platforms[p].followersTrend?.slice(-1)[0]?.value ?? 0;
-    });
-    const interactionsTotal = engTotals.likes + engTotals.comments + engTotals.shares;
-    const engRateTotal = reachTotal > 0 ? Math.round((interactionsTotal / reachTotal) * 10000) / 100 : 0;
-    const all: { key: MetricKey; label: string; val: number }[] = [
-      { key: "followers",    label: "Followers",     val: followersTotal },
-      { key: "reach",        label: "Reach",         val: reachTotal },
-      { key: "interactions", label: "Interactions",  val: interactionsTotal },
-      { key: "engRate",      label: "Eng. Rate",     val: engRateTotal },
-      { key: "likes",        label: "Likes",         val: engTotals.likes },
-      { key: "comments",     label: "Cmts",          val: engTotals.comments },
-      { key: "shares",       label: "Shares",        val: engTotals.shares },
-    ];
-    return all.filter(({ key }) => key !== metric);
-  }, [allData, metric, days, endDate]);
 
   return (
     <div className="card" style={{ padding: 22, display: "flex", flexDirection: "column", height: "100%" }}>
@@ -1002,18 +946,6 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
         </ResponsiveContainer>
       </div>
 
-      {/* Bottom stats: all metrics except selected */}
-      <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "nowrap" }}>
-        {bottomTotals.map(({ key, label, val }) => (
-          <div key={key}
-            onClick={() => onMetricChange?.(key)}
-            style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
-          >
-            <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 1 }}>{label}</div>
-            <div style={{ fontWeight: 700, fontSize: 10 }}>{formatCompactNumber(val)}</div>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -3146,7 +3078,7 @@ export default function DashboardPage() {
             ref={kpiGridRef}
             style={{
               display: "grid",
-              gridTemplateColumns: kpiGridW < 640 ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
+              gridTemplateColumns: kpiGridW < 820 ? "repeat(2, 1fr)" : "repeat(4, 1fr)",
               gap: 16,
               marginBottom: 24,
             }}
