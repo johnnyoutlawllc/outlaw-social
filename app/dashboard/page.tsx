@@ -804,7 +804,7 @@ function SummaryTile({
                 onClick={(e) => { e.stopPropagation(); onMetricChange?.(key); }}
                 style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
               >
-                <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 1 }}>{label}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 8, marginBottom: 1 }}>{label}</div>
                 <div style={{ fontWeight: 700, fontSize: 13, transition: "color 0.1s" }}>{formatCompactNumber(val)}</div>
               </div>
             ))}
@@ -1010,7 +1010,7 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
             style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
           >
             <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 1 }}>{label}</div>
-            <div style={{ fontWeight: 700, fontSize: 11 }}>{formatCompactNumber(val)}</div>
+            <div style={{ fontWeight: 700, fontSize: 10 }}>{formatCompactNumber(val)}</div>
           </div>
         ))}
       </div>
@@ -1757,6 +1757,7 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
   const [sortBy, setSortBy] = useState<string>(metric);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [hovered, setHovered] = useState<{ platform: Platform; postId: string; col: string; x: number; y: number } | null>(null);
+  const [postSearch, setPostSearch] = useState("");
 
   // Sync sortBy when global metric changes
   useEffect(() => {
@@ -1774,7 +1775,11 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
         filterPostDays(data.platforms[p].topPosts, days, endDate).forEach((post) => combined.push({ ...post, platform: p }));
       }
     });
-    combined.sort((a, b) => {
+    const searchLower = postSearch.trim().toLowerCase();
+    const filtered = searchLower
+      ? combined.filter((p) => (p.title ?? "").toLowerCase().includes(searchLower))
+      : combined;
+    filtered.sort((a, b) => {
       let av = 0;
       let bv = 0;
       if (sortBy === "date") {
@@ -1795,8 +1800,8 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
       }
       return sortDir === "desc" ? bv - av : av - bv;
     });
-    return combined;
-  }, [data, active, allPlatforms, sortBy, sortDir, days, endDate]);
+    return filtered;
+  }, [data, active, allPlatforms, postSearch, sortBy, sortDir, days, endDate]);
 
   // Build per-day data for a given post + column metric
   const hoveredDailyData = useMemo(() => {
@@ -1860,10 +1865,31 @@ function AllTopPostsCard({ data, days = 365, metric = "reach", endDate = "" }: {
 
   return (
     <div className="card" style={{ padding: 24, marginBottom: 24, position: "relative" }}>
-      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Posts by Platform</h2>
-      <p style={{ color: "var(--text-muted)", fontSize: 13, marginBottom: 16 }}>
-        Sorted by active metric. Hover any metric cell for daily breakdown. Click headers to re-sort.
-      </p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, marginBottom: 14, flexWrap: "wrap" }}>
+        <div>
+          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>All Posts</h2>
+          <p style={{ color: "var(--text-muted)", fontSize: 13, margin: 0 }}>
+            Sorted by active metric. Hover any metric cell for daily breakdown. Click headers to re-sort.
+          </p>
+        </div>
+        <input
+          type="text"
+          placeholder="Search by title / text…"
+          value={postSearch}
+          onChange={(e) => setPostSearch(e.target.value)}
+          style={{
+            background: "rgba(255,255,255,0.06)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "7px 12px",
+            fontSize: 13,
+            color: "#fff",
+            outline: "none",
+            width: 220,
+            flexShrink: 0,
+          }}
+        />
+      </div>
 
       <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
         {allPlatforms.map((p) => (
