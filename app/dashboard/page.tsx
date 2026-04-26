@@ -798,13 +798,13 @@ function SummaryTile({
         ];
         const bottomMetrics = allBottomMetrics.filter(({ key }) => key !== metric);
         return (
-          <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "nowrap" }}>
             {bottomMetrics.map(({ key, label, val }) => (
               <div key={key}
                 onClick={(e) => { e.stopPropagation(); onMetricChange?.(key); }}
-                style={{ flex: "1 1 auto", minWidth: 48, cursor: onMetricChange ? "pointer" : "default" }}
+                style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
               >
-                <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 1 }}>{label}</div>
                 <div style={{ fontWeight: 700, fontSize: 13, transition: "color 0.1s" }}>{formatCompactNumber(val)}</div>
               </div>
             ))}
@@ -1003,14 +1003,14 @@ function CombinedTrendTile({ data: _data, allData, includeZero = true, metric = 
       </div>
 
       {/* Bottom stats: all metrics except selected */}
-      <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border)", flexWrap: "nowrap" }}>
         {bottomTotals.map(({ key, label, val }) => (
           <div key={key}
             onClick={() => onMetricChange?.(key)}
-            style={{ flex: "1 1 auto", minWidth: 48, cursor: onMetricChange ? "pointer" : "default" }}
+            style={{ flex: "1 1 0", minWidth: 0, cursor: onMetricChange ? "pointer" : "default" }}
           >
-            <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 2 }}>{label}</div>
-            <div style={{ fontWeight: 700, fontSize: 13 }}>{formatCompactNumber(val)}</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 1 }}>{label}</div>
+            <div style={{ fontWeight: 700, fontSize: 11 }}>{formatCompactNumber(val)}</div>
           </div>
         ))}
       </div>
