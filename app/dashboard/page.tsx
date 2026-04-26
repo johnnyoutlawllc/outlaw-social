@@ -1650,7 +1650,6 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
         const pColor = PLATFORM_COLORS[pubHov.platform];
         const metricLabel = metric === "followers" ? "followers" : metric === "reach" ? "reach" : metric === "engRate" ? "eng. rate" : metric;
         const getVal = (post: TopPost) => postMetricVal(post, metric);
-        };
         return (
           <div style={{
             position: "fixed",
