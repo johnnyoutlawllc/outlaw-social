@@ -561,8 +561,25 @@ function ChartDayTooltip({
   return (
     <div style={{ background: "#111", border: "1px solid var(--border)", borderRadius: 10, padding: 14, maxWidth: 280, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.5)", pointerEvents: "none" }}>
       <div style={{ fontWeight: 700, marginBottom: 2 }}>{formatShortDate(label)}</div>
-      <div style={{ color: "var(--accent)", fontWeight: 700, marginBottom: posts.length ? 10 : 0, fontSize: 13 }}>
-        {formatCompactNumber(dayTotal)} {metric}
+      <div style={{ marginBottom: posts.length ? 10 : 0 }}>
+        <div style={{ color: "var(--accent)", fontWeight: 700, fontSize: 13 }}>
+          {formatCompactNumber(dayTotal)} {metric}
+        </div>
+        {metric === "interactions" && posts.length > 0 && (() => {
+          const lk = posts.reduce((s, p) => s + (p.likes ?? 0), 0);
+          const cm = posts.reduce((s, p) => s + (p.comments ?? 0), 0);
+          const sh = posts.reduce((s, p) => s + (p.shares ?? 0), 0);
+          return (
+            <div style={{ display: "flex", gap: 10, marginTop: 3 }}>
+              {[["Likes", lk], ["Cmts", cm], ["Shares", sh]].map(([lbl, v]) => (
+                <div key={String(lbl)} style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                  <span>{lbl} </span>
+                  <span style={{ color: "#ddd", fontWeight: 700 }}>{formatCompactNumber(Number(v))}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
       {posts.map((post) => {
         const val = getVal(post);
@@ -744,11 +761,35 @@ function SummaryTile({
           bigDelta = recent - prior;
           bigLabel = metric === "interactions" ? "total interactions" : metric === "engRate" ? "avg eng. rate %" : "total " + metric;
         }
+        // Breakdown totals for interactions
+        const interactionBreakdown = metric === "interactions" ? (() => {
+          const d2 = (allData?.platforms[summary.platform]?.activityDrivers ?? {}) as { [k: string]: TopPost[] };
+          const filteredPosts = Object.entries(d2).flatMap(([day, posts]) => {
+            const cut = days < 365 ? getCutoff(days) : "0000-00-00";
+            const cap = endDate || "9999-99-99";
+            return (day >= cut && day <= cap) ? posts : [];
+          });
+          return {
+            likes: filteredPosts.reduce((s, p) => s + (p.likes ?? 0), 0),
+            comments: filteredPosts.reduce((s, p) => s + (p.comments ?? 0), 0),
+            shares: filteredPosts.reduce((s, p) => s + (p.shares ?? 0), 0),
+          };
+        })() : null;
         return (
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{formatCompactNumber(bigVal)}</div>
               <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{bigLabel}</div>
+              {interactionBreakdown && (
+                <div style={{ display: "flex", gap: 10, marginTop: 5 }}>
+                  {[["Likes", interactionBreakdown.likes], ["Cmts", interactionBreakdown.comments], ["Shares", interactionBreakdown.shares]].map(([lbl, v]) => (
+                    <div key={String(lbl)} style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      <span style={{ color: "rgba(255,255,255,0.4)", fontWeight: 500 }}>{lbl} </span>
+                      <span style={{ color: "#ddd", fontWeight: 700 }}>{formatCompactNumber(Number(v))}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
             <div style={{ textAlign: "right" }}>
               <div style={{ color: bigDelta >= 0 ? "#86efac" : "#fca5a5", fontWeight: 700 }}>{formatDelta(bigDelta)}</div>
