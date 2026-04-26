@@ -717,6 +717,7 @@ function SummaryTile({
   allData?: DashboardPayload;
 }) {
   void _onMetricChange;
+  const isMobile = useWindowWidth() < 600;
   const color = PLATFORM_COLORS[summary.platform];
   const sharedStyle = {
     padding: 22,
@@ -791,7 +792,7 @@ function SummaryTile({
         return (
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 16, alignItems: "end", marginBottom: 12 }}>
             <div>
-              <div style={{ fontSize: 32, fontWeight: 800, marginBottom: 4 }}>{formatCompactNumber(bigVal)}</div>
+              <div style={{ fontSize: isMobile ? 26 : 32, fontWeight: 800, marginBottom: 4 }}>{formatCompactNumber(bigVal)}</div>
               <div style={{ color: "var(--text-muted)", fontSize: 13 }}>{bigLabel}</div>
               {interactionBreakdown && (
                 <div style={{ display: "flex", gap: 10, marginTop: 5 }}>
@@ -3006,6 +3007,20 @@ function MetricDropdown({ value, onChange }: { value: MetricKey; onChange: (m: M
 }
 
 
+
+// ── Responsive hook ──────────────────────────────────────────────────────────
+function useWindowWidth() {
+  const [w, setW] = React.useState(() =>
+    typeof window !== "undefined" ? window.innerWidth : 1200
+  );
+  React.useEffect(() => {
+    const handler = () => setW(window.innerWidth);
+    window.addEventListener("resize", handler);
+    return () => window.removeEventListener("resize", handler);
+  }, []);
+  return w;
+}
+
 // ── Web Traffic Tab ──────────────────────────────────────────────────────────
 const SITE_COLORS: Record<string, string> = {
   Shutterfield: "#ff6b35",
@@ -3133,7 +3148,9 @@ function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; load
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
   const kpiGridRef = useRef<HTMLDivElement>(null);
-  const [kpiGridW, setKpiGridW] = useState(1200);
+  const windowW = useWindowWidth();
+  const isMobile = windowW < 600;
+  const [kpiGridW, setKpiGridW] = useState(() => typeof window !== "undefined" ? window.innerWidth - 32 : 1200);
   useEffect(() => {
     const el = kpiGridRef.current;
     if (!el) return;
@@ -3231,43 +3248,40 @@ export default function DashboardPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1320, margin: "0 auto", padding: "40px 24px 96px" }}>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: "space-between",
-          gap: 16,
-          alignItems: "flex-start",
-          marginBottom: 24,
-        }}
-      >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "flex-end" }}>
-          <div className="pill">Updated {formatDateTime(data.generatedAt)}</div>
-          <div className="pill">{formatCompactNumber(followerSummary)} total followers</div>
-          <form action="/api/auth/signout" method="post">
-            <button className="btn-ghost" type="submit">
-              Sign out
-            </button>
-          </form>
-        </div>
+    <div style={{ maxWidth: 1320, margin: "0 auto", padding: isMobile ? "16px 12px 96px" : "40px 24px 96px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: isMobile ? 12 : 24, gap: 10, flexWrap: "wrap" }}>
+        {isMobile ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <div className="pill" style={{ fontSize: 11, padding: "0 10px" }}>{formatCompactNumber(followerSummary)} followers</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <div className="pill">Updated {formatDateTime(data.generatedAt)}</div>
+            <div className="pill">{formatCompactNumber(followerSummary)} total followers</div>
+          </div>
+        )}
+        <form action="/api/auth/signout" method="post">
+          <button className="btn-ghost" type="submit">Sign out</button>
+        </form>
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 20 }}>
+      <div className="tab-scroll" style={{ marginBottom: 16 }}>
         {(["all", "facebook", "instagram", "tiktok", "webtraffic"] as TabKey[]).map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
             style={{
-              padding: "10px 16px",
+              padding: isMobile ? "8px 12px" : "10px 16px",
               borderRadius: 999,
               border: "1px solid var(--border)",
               background: activeTab === tab ? "var(--accent)" : "transparent",
               color: activeTab === tab ? "#fff" : "var(--text-muted)",
               cursor: "pointer",
-              fontSize: 13,
+              fontSize: isMobile ? 12 : 13,
               fontWeight: 700,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
             }}
           >
             {tab === "all" ? "All Platforms" : tab === "webtraffic" ? "Web Traffic" : PLATFORM_LABELS[tab as Platform]}
@@ -3277,9 +3291,9 @@ export default function DashboardPage() {
 
       {activeTab === "all" ? (
         <>
-          <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
+          <div className="filter-row">
             <MetricDropdown value={globalMetric} onChange={setGlobalMetric} />
-            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4 }}>
+            <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 4, flex: isMobile ? 1 : undefined }}>
               <button type="button" onClick={() => setGlobalIncludeZero(true)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: globalIncludeZero ? "var(--accent)" : "transparent", color: globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Include 0</button>
               <button type="button" onClick={() => setGlobalIncludeZero(false)} style={{ padding: "6px 16px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: !globalIncludeZero ? "rgba(255,255,255,0.08)" : "transparent", color: !globalIncludeZero ? "#fff" : "var(--text-muted)", transition: "all 0.15s" }}>Zoom</button>
             </div>
