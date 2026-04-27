@@ -28,7 +28,7 @@ function LoginContent() {
 
   const errorMessage =
     error === "unauthorized"
-      ? "That Google account is not on the Outlaw Social Analytics allowlist."
+      ? "That Google account is not on the Outlaw Analytics allowlist."
       : error === "auth_failed"
         ? "Google sign-in failed. Give it another shot."
         : null;

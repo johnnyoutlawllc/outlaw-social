@@ -156,8 +156,15 @@ type PlatformDetails = {
   secondaryActivityDrivers?: Record<string, TopPost[]>;
 };
 
+type SocialAccountOption = {
+  key: string;
+  label: string;
+};
+
 type DashboardPayload = {
   generatedAt: string;
+  selectedAccount: string;
+  accounts: SocialAccountOption[];
   trend: TrendPoint[];
   summaries: Summary[];
   platforms: Record<Platform, PlatformDetails>;
@@ -3146,6 +3153,7 @@ function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; load
 
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardPayload | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState("big-sky-30");
   const kpiGridRef = useRef<HTMLDivElement>(null);
   const windowW = useWindowWidth();
   const isMobile = windowW < 600;
@@ -3172,7 +3180,8 @@ export default function DashboardPage() {
 
     async function load() {
       try {
-        const response = await fetch("/api/dashboard", { cache: "no-store" });
+        setLoading(true);
+        const response = await fetch(`/api/dashboard?account=${encodeURIComponent(selectedAccount)}`, { cache: "no-store" });
         const payload = await response.json();
 
         if (response.status === 401 || response.status === 403) {
@@ -3204,7 +3213,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedAccount]);
 
   useEffect(() => {
     if (activeTab !== "webtraffic") return;
@@ -3226,15 +3235,18 @@ export default function DashboardPage() {
     return data.summaries.reduce((sum, summary) => sum + summary.latestFollowers, 0);
   }, [data]);
 
+  const selectedAccountLabel =
+    data?.accounts.find((account) => account.key === selectedAccount)?.label ?? "selected account";
+
   if (loading) {
-    return <div style={{ padding: 40, color: "var(--text-muted)" }}>Loading Big Sky 30 metrics...</div>;
+    return <div style={{ padding: 40, color: "var(--text-muted)" }}>Loading {selectedAccountLabel} metrics...</div>;
   }
 
   if (error || !data) {
     return (
       <div style={{ maxWidth: 640, margin: "72px auto", padding: "0 24px" }}>
         <div className="card" style={{ padding: 28 }}>
-          <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Big Sky 30 dashboard</h1>
+          <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 12 }}>Outlaw Analytics</h1>
           <p style={{ color: "#fca5a5", marginBottom: 20 }}>
             {error ?? "Dashboard data is not available right now."}
           </p>
@@ -3259,6 +3271,30 @@ export default function DashboardPage() {
             <div className="pill">{formatCompactNumber(followerSummary)} total followers</div>
           </div>
         )}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+          Account
+          <select
+            value={selectedAccount}
+            onChange={(event) => {
+              setSelectedAccount(event.target.value);
+              setActiveTab("all");
+            }}
+            style={{
+              background: "var(--card-bg)",
+              color: "var(--text)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "8px 10px",
+              fontWeight: 700,
+            }}
+          >
+            {data.accounts.map((account) => (
+              <option key={account.key} value={account.key}>
+                {account.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <form action="/api/auth/signout" method="post">
           <button className="btn-ghost" type="submit">Sign out</button>
         </form>

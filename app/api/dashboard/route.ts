@@ -81,15 +81,49 @@ type DataPoint = {
   value: number;
 };
 
+type SocialAccountKey = "big-sky-30" | "dead-wax";
+
+type SocialAccount = {
+  key: SocialAccountKey;
+  label: string;
+  ids: Record<Platform, string>;
+  handles: Record<Platform, string>;
+};
+
 const OUTLAW_DATA_URL = "https://qijclqubjdvqjsgxvkzk.supabase.co";
 const OUTLAW_DATA_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpamNscXViamR2cWpzZ3h2a3prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwMDEwNjIsImV4cCI6MjA4NjU3NzA2Mn0.E83M4qkoh7d36NBYAg4N4_1FcYJhAstgZg3zUP2NyM8";
 
-const BIG_SKY_IDS = {
-  facebook: "699530623236611",
-  instagram: "17841474725151882",
-  tiktok: "-000GsDSS8rBwxByREq9kOjzDS9F5pHfiHRi",
-} as const;
+const SOCIAL_ACCOUNTS: SocialAccount[] = [
+  {
+    key: "big-sky-30",
+    label: "Big Sky 30",
+    ids: {
+      facebook: "699530623236611",
+      instagram: "17841474725151882",
+      tiktok: "-000GsDSS8rBwxByREq9kOjzDS9F5pHfiHRi",
+    },
+    handles: {
+      facebook: "Big Sky 30",
+      instagram: "@big_sky_30",
+      tiktok: "@big.sky.30",
+    },
+  },
+  {
+    key: "dead-wax",
+    label: "Dead Wax",
+    ids: {
+      facebook: "410101409034930",
+      instagram: "17841401222920324",
+      tiktok: "-000Z8c_S35oIniQhkul_S6J-BvbmJAG02XS",
+    },
+    handles: {
+      facebook: "Dead Wax Records",
+      instagram: "@dead_wax_dallas",
+      tiktok: "@deadwaxdallas",
+    },
+  },
+];
 
 const PLATFORM_META: Record<
   Platform,
@@ -123,6 +157,14 @@ const PLATFORM_META: Record<
     performanceNote: "Derived from video snapshot deltas",
   },
 };
+
+function platformMetaFor(account: SocialAccount) {
+  return {
+    facebook: { ...PLATFORM_META.facebook, handle: account.handles.facebook },
+    instagram: { ...PLATFORM_META.instagram, handle: account.handles.instagram },
+    tiktok: { ...PLATFORM_META.tiktok, handle: account.handles.tiktok },
+  } satisfies typeof PLATFORM_META;
+}
 
 const dataClient = createSupabaseClient(OUTLAW_DATA_URL, OUTLAW_DATA_ANON_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
@@ -214,7 +256,7 @@ function buildActivityDrivers(rows: TopPostRow[]) {
   );
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const authClient = await createServerSupabaseClient();
   const {
     data: { user },
@@ -228,29 +270,34 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const requestedAccount = new URL(request.url).searchParams.get("account") as SocialAccountKey | null;
+  const account = SOCIAL_ACCOUNTS.find((item) => item.key === requestedAccount) ?? SOCIAL_ACCOUNTS[0];
+  const accountIds = account.ids;
+  const platformMeta = platformMetaFor(account);
+
   try {
     const followerTrendSql = `
       with fb as (
         select date(synced_at) as day, max(followers_count) as followers
         from outlaw_data.facebook_page_history
-        where page_id = '${BIG_SKY_IDS.facebook}'
+        where page_id = '${accountIds.facebook}'
         group by 1
       ), ig as (
         select date(updated) as day, max(followers_count) as followers
         from outlaw_data.instagram_account_history
-        where account_id = '${BIG_SKY_IDS.instagram}'
+        where account_id = '${accountIds.instagram}'
         group by 1
       ), tk_history as (
         select date(synced_at) as day, max(follower_count) as followers
         from outlaw_data.tiktok_account_history
-        where open_id = '${BIG_SKY_IDS.tiktok}'
+        where open_id = '${accountIds.tiktok}'
         group by 1
       ), tk as (
         select * from tk_history
         union all
         select date(last_synced_at) as day, follower_count as followers
         from outlaw_data.tiktok_accounts
-        where open_id = '${BIG_SKY_IDS.tiktok}'
+        where open_id = '${accountIds.tiktok}'
           and not exists (select 1 from tk_history)
       )
       select 'facebook' as platform, day, followers from fb
@@ -269,7 +316,7 @@ export async function GET() {
         max(case when metric_name = 'page_views_total' then metric_value end) as page_views,
         sum(case when metric_name like 'page_actions_post_reactions_total.%' then metric_value else 0 end) as reactions
       from outlaw_data.facebook_page_insights
-      where account_id = '${BIG_SKY_IDS.facebook}'
+      where account_id = '${accountIds.facebook}'
       group by 1
       order by 1
     `;
@@ -284,7 +331,7 @@ export async function GET() {
           max(case when metric_name = 'post_impressions_unique' then metric_value end) as impressions,
           max(case when metric_name = 'post_video_views' then metric_value end) as views
         from outlaw_data.facebook_post_metrics
-        where account_id = '${BIG_SKY_IDS.facebook}'
+        where account_id = '${accountIds.facebook}'
         group by post_id
       ), recent as (
         select
@@ -298,7 +345,7 @@ export async function GET() {
           coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.shares, 0) as engagement
         from outlaw_data.facebook_posts fp
         left join metric_rollup m on m.post_id = fp.post_id
-        where fp.account_id = '${BIG_SKY_IDS.facebook}'
+        where fp.account_id = '${accountIds.facebook}'
           and fp.created_time >= now() - interval '30 days'
       )
       select
@@ -315,13 +362,13 @@ export async function GET() {
       with latest_day as (
         select max(metric_date) as day
         from outlaw_data.facebook_page_insights
-        where account_id = '${BIG_SKY_IDS.facebook}'
+        where account_id = '${accountIds.facebook}'
       )
       select
         replace(metric_name, 'page_actions_post_reactions_total.', '') as reaction,
         metric_value as value
       from outlaw_data.facebook_page_insights
-      where account_id = '${BIG_SKY_IDS.facebook}'
+      where account_id = '${accountIds.facebook}'
         and metric_date = (select day from latest_day)
         and metric_name like 'page_actions_post_reactions_total.%'
       order by metric_value desc
@@ -338,7 +385,7 @@ export async function GET() {
           max(case when metric_name = 'post_impressions_unique' then metric_value end) as impressions,
           max(case when metric_name = 'post_video_views' then metric_value end) as views
         from outlaw_data.facebook_post_metrics
-        where account_id = '${BIG_SKY_IDS.facebook}'
+        where account_id = '${accountIds.facebook}'
         group by post_id
       )
       select
@@ -356,7 +403,7 @@ export async function GET() {
         coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.shares, 0) as engagement_score
       from outlaw_data.facebook_posts fp
       left join metric_rollup m on m.post_id = fp.post_id
-      where fp.account_id = '${BIG_SKY_IDS.facebook}'
+      where fp.account_id = '${accountIds.facebook}'
       order by engagement_score desc, views desc, created_time desc
     `;
 
@@ -370,7 +417,7 @@ export async function GET() {
           max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
           max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
         from outlaw_data.facebook_post_metrics fpm
-        where fpm.account_id = '${BIG_SKY_IDS.facebook}'
+        where fpm.account_id = '${accountIds.facebook}'
         group by 1, 2
       ), deltas as (
         select
@@ -399,7 +446,7 @@ export async function GET() {
         coalesce(d.daily_reach, 0) as engagement_score
       from deltas d
       join outlaw_data.facebook_posts fp on fp.post_id = d.post_id
-      where fp.account_id = '${BIG_SKY_IDS.facebook}'
+      where fp.account_id = '${accountIds.facebook}'
         and d.activity_day >= current_date - interval '180 days'
         and coalesce(d.daily_reach, 0) > 0
       order by d.activity_day desc, engagement_score desc, created_time desc
@@ -415,7 +462,7 @@ export async function GET() {
           max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
           max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
         from outlaw_data.facebook_post_metrics fpm
-        where fpm.account_id = '${BIG_SKY_IDS.facebook}'
+        where fpm.account_id = '${accountIds.facebook}'
         group by 1, 2
       ), deltas as (
         select
@@ -444,7 +491,7 @@ export async function GET() {
         coalesce(d.daily_likes, 0) as engagement_score
       from deltas d
       join outlaw_data.facebook_posts fp on fp.post_id = d.post_id
-      where fp.account_id = '${BIG_SKY_IDS.facebook}'
+      where fp.account_id = '${accountIds.facebook}'
         and d.activity_day >= current_date - interval '180 days'
         and coalesce(d.daily_likes, 0) > 0
       order by d.activity_day desc, engagement_score desc, created_time desc
@@ -453,7 +500,7 @@ export async function GET() {
     const instagramPerformanceSql = `
       select date(date) as day, max(value) as reach
       from outlaw_data.instagram_insights
-      where account_id = '${BIG_SKY_IDS.instagram}'
+      where account_id = '${accountIds.instagram}'
         and metric = 'reach'
         and period = 'day'
       group by 1
@@ -470,7 +517,7 @@ export async function GET() {
           max(case when metric = 'shares' then value end) as shares
         from outlaw_data.instagram_media_insights imi
         join outlaw_data.instagram_media im on im.media_id = imi.media_id
-        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        where im.account_id = '${accountIds.instagram}'
         group by imi.media_id
       ), recent as (
         select
@@ -484,7 +531,7 @@ export async function GET() {
           coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.saves, 0) + coalesce(m.shares, 0) as engagement
         from outlaw_data.instagram_media im
         left join metric_rollup m on m.media_id = im.media_id
-        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        where im.account_id = '${accountIds.instagram}'
           and im.timestamp >= now() - interval '30 days'
       )
       select
@@ -506,7 +553,7 @@ export async function GET() {
           max(case when metric = 'shares' then value end) as shares
         from outlaw_data.instagram_media_insights imi
         join outlaw_data.instagram_media im on im.media_id = imi.media_id
-        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        where im.account_id = '${accountIds.instagram}'
         group by imi.media_id
       )
       select
@@ -517,7 +564,7 @@ export async function GET() {
         avg(coalesce(m.saves, 0)) as avg_saves
       from outlaw_data.instagram_media im
       left join metric_rollup m on m.media_id = im.media_id
-      where im.account_id = '${BIG_SKY_IDS.instagram}'
+      where im.account_id = '${accountIds.instagram}'
       group by 1
       order by posts desc
     `;
@@ -526,7 +573,7 @@ export async function GET() {
       with latest_days as (
         select breakdown_type, max(date(date)) as latest_day
         from outlaw_data.instagram_demographics
-        where account_id = '${BIG_SKY_IDS.instagram}'
+        where account_id = '${accountIds.instagram}'
         group by breakdown_type
       )
       select d.breakdown_type, d.key, d.value
@@ -534,7 +581,7 @@ export async function GET() {
       join latest_days ld
         on ld.breakdown_type = d.breakdown_type
        and ld.latest_day = date(d.date)
-      where d.account_id = '${BIG_SKY_IDS.instagram}'
+      where d.account_id = '${accountIds.instagram}'
       order by d.breakdown_type, d.value desc
     `;
 
@@ -548,7 +595,7 @@ export async function GET() {
           max(case when metric = 'shares' then value end) as shares
         from outlaw_data.instagram_media_insights imi
         join outlaw_data.instagram_media im on im.media_id = imi.media_id
-        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        where im.account_id = '${accountIds.instagram}'
         group by imi.media_id
       )
       select
@@ -565,7 +612,7 @@ export async function GET() {
         coalesce(m.likes, 0) + coalesce(m.comments, 0) + coalesce(m.saves, 0) + coalesce(m.shares, 0) as engagement_score
       from outlaw_data.instagram_media im
       left join metric_rollup m on m.media_id = im.media_id
-      where im.account_id = '${BIG_SKY_IDS.instagram}'
+      where im.account_id = '${accountIds.instagram}'
       order by engagement_score desc, created_time desc
     `;
 
@@ -578,7 +625,7 @@ export async function GET() {
           max(imi.value) as value
         from outlaw_data.instagram_media_insights imi
         join outlaw_data.instagram_media im on im.media_id = imi.media_id
-        where im.account_id = '${BIG_SKY_IDS.instagram}'
+        where im.account_id = '${accountIds.instagram}'
           and imi.metric in ('likes', 'comments', 'saved', 'shares')
         group by 1, 2, 3
       ), pivoted as (
@@ -629,7 +676,7 @@ export async function GET() {
           max(s.snapshot_timestamp) as latest_ts
         from outlaw_data.tiktok_video_snapshots s
         join outlaw_data.tiktok_videos v on v.video_id = s.video_id
-        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        where v.account_open_id = '${accountIds.tiktok}'
         group by 1, 2
       ), daily_snapshots as (
         select
@@ -686,7 +733,7 @@ export async function GET() {
           coalesce(ls.like_count, 0) + coalesce(ls.comment_count, 0) + coalesce(ls.share_count, 0) as engagement
         from outlaw_data.tiktok_videos tv
         left join latest_snapshots ls on ls.video_id = tv.video_id
-        where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        where tv.account_open_id = '${accountIds.tiktok}'
           and tv.create_time >= now() - interval '30 days'
       )
       select
@@ -702,7 +749,7 @@ export async function GET() {
     const tiktokAccountSql = `
       select follower_count, following_count, likes_count, video_count, is_verified
       from outlaw_data.tiktok_accounts
-      where open_id = '${BIG_SKY_IDS.tiktok}'
+      where open_id = '${accountIds.tiktok}'
       order by last_synced_at desc
       limit 1
     `;
@@ -733,7 +780,7 @@ export async function GET() {
         coalesce(ls.like_count, 0) + coalesce(ls.comment_count, 0) + coalesce(ls.share_count, 0) as engagement_score
       from outlaw_data.tiktok_videos tv
       left join latest_snapshots ls on ls.video_id = tv.video_id
-      where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+      where tv.account_open_id = '${accountIds.tiktok}'
       order by engagement_score desc, views desc, create_time desc
     `;
 
@@ -745,7 +792,7 @@ export async function GET() {
           max(s.snapshot_timestamp) as latest_ts
         from outlaw_data.tiktok_video_snapshots s
         join outlaw_data.tiktok_videos v on v.video_id = s.video_id
-        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        where v.account_open_id = '${accountIds.tiktok}'
         group by 1, 2
       ), daily_snapshots as (
         select
@@ -786,7 +833,7 @@ export async function GET() {
         coalesce(d.daily_views, 0) as engagement_score
       from deltas d
       join outlaw_data.tiktok_videos tv on tv.video_id = d.video_id
-      where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+      where tv.account_open_id = '${accountIds.tiktok}'
         and d.activity_day >= current_date - interval '180 days'
         and coalesce(d.daily_views, 0) > 0
       order by d.activity_day desc, engagement_score desc, create_time desc
@@ -800,7 +847,7 @@ export async function GET() {
           max(s.snapshot_timestamp) as latest_ts
         from outlaw_data.tiktok_video_snapshots s
         join outlaw_data.tiktok_videos v on v.video_id = s.video_id
-        where v.account_open_id = '${BIG_SKY_IDS.tiktok}'
+        where v.account_open_id = '${accountIds.tiktok}'
         group by 1, 2
       ), daily_snapshots as (
         select
@@ -841,7 +888,7 @@ export async function GET() {
         coalesce(d.daily_likes, 0) as engagement_score
       from deltas d
       join outlaw_data.tiktok_videos tv on tv.video_id = d.video_id
-      where tv.account_open_id = '${BIG_SKY_IDS.tiktok}'
+      where tv.account_open_id = '${accountIds.tiktok}'
         and d.activity_day >= current_date - interval '180 days'
         and coalesce(d.daily_likes, 0) > 0
       order by d.activity_day desc, engagement_score desc, create_time desc
@@ -910,7 +957,7 @@ export async function GET() {
       a.day.localeCompare(b.day)
     );
 
-    const followersByPlatform = (Object.keys(PLATFORM_META) as Platform[]).reduce(
+    const followersByPlatform = (Object.keys(platformMeta) as Platform[]).reduce(
       (acc, platform) => {
         acc[platform] = followerTrendRows
           .filter((row) => row.platform === platform)
@@ -962,7 +1009,7 @@ export async function GET() {
     const tiktokViewDrivers = buildActivityDrivers(tiktokViewDriverRows);
     const tiktokLikeDrivers = buildActivityDrivers(tiktokLikeDriverRows);
 
-    const summaries = (Object.keys(PLATFORM_META) as Platform[]).map((platform) => {
+    const summaries = (Object.keys(platformMeta) as Platform[]).map((platform) => {
       const followersTrend = followersByPlatform[platform];
       const latestFollowers = getLatestPoint(followersTrend)?.value ?? 0;
       const firstFollowers = followersTrend[0]?.value ?? 0;
@@ -976,14 +1023,14 @@ export async function GET() {
 
       return {
         platform,
-        label: PLATFORM_META[platform].label,
-        handle: PLATFORM_META[platform].handle,
-        metricLabel: PLATFORM_META[platform].metricLabel,
+        label: platformMeta[platform].label,
+        handle: platformMeta[platform].handle,
+        metricLabel: platformMeta[platform].metricLabel,
         latestFollowers,
         deltaFollowers: latestFollowers - firstFollowers,
         points: followersTrend.length,
-        performanceLabel: PLATFORM_META[platform].performanceLabel,
-        performanceNote: PLATFORM_META[platform].performanceNote,
+        performanceLabel: platformMeta[platform].performanceLabel,
+        performanceNote: platformMeta[platform].performanceNote,
         followersTrend,
         performanceTrend,
         performanceLatest: getLatestPoint(performanceTrend)?.value ?? 0,
@@ -994,11 +1041,11 @@ export async function GET() {
     const platforms = {
       facebook: {
         platform: "facebook" as const,
-        label: PLATFORM_META.facebook.label,
-        handle: PLATFORM_META.facebook.handle,
-        metricLabel: PLATFORM_META.facebook.metricLabel,
-        performanceLabel: PLATFORM_META.facebook.performanceLabel,
-        performanceNote: PLATFORM_META.facebook.performanceNote,
+        label: platformMeta.facebook.label,
+        handle: platformMeta.facebook.handle,
+        metricLabel: platformMeta.facebook.metricLabel,
+        performanceLabel: platformMeta.facebook.performanceLabel,
+        performanceNote: platformMeta.facebook.performanceNote,
         followersTrend: followersByPlatform.facebook,
         performanceTrend: facebookPerformance,
         secondaryLabel: "Daily reactions",
@@ -1071,11 +1118,11 @@ export async function GET() {
       },
       instagram: {
         platform: "instagram" as const,
-        label: PLATFORM_META.instagram.label,
-        handle: PLATFORM_META.instagram.handle,
-        metricLabel: PLATFORM_META.instagram.metricLabel,
-        performanceLabel: PLATFORM_META.instagram.performanceLabel,
-        performanceNote: PLATFORM_META.instagram.performanceNote,
+        label: platformMeta.instagram.label,
+        handle: platformMeta.instagram.handle,
+        metricLabel: platformMeta.instagram.metricLabel,
+        performanceLabel: platformMeta.instagram.performanceLabel,
+        performanceNote: platformMeta.instagram.performanceNote,
         followersTrend: followersByPlatform.instagram,
         performanceTrend: instagramPerformance,
         secondaryLabel: "Follower trend",
@@ -1178,11 +1225,11 @@ export async function GET() {
       },
       tiktok: {
         platform: "tiktok" as const,
-        label: PLATFORM_META.tiktok.label,
-        handle: PLATFORM_META.tiktok.handle,
-        metricLabel: PLATFORM_META.tiktok.metricLabel,
-        performanceLabel: PLATFORM_META.tiktok.performanceLabel,
-        performanceNote: PLATFORM_META.tiktok.performanceNote,
+        label: platformMeta.tiktok.label,
+        handle: platformMeta.tiktok.handle,
+        metricLabel: platformMeta.tiktok.metricLabel,
+        performanceLabel: platformMeta.tiktok.performanceLabel,
+        performanceNote: platformMeta.tiktok.performanceNote,
         followersTrend: followersByPlatform.tiktok,
         performanceTrend: tiktokPerformance,
         secondaryLabel: "Daily likes",
@@ -1261,6 +1308,8 @@ export async function GET() {
     return NextResponse.json(
       {
         generatedAt: new Date().toISOString(),
+        selectedAccount: account.key,
+        accounts: SOCIAL_ACCOUNTS.map(({ key, label }) => ({ key, label })),
         trend,
         summaries,
         platforms,
