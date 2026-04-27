@@ -59,19 +59,8 @@ type WebSiteStats = {
   keyEvents: WebTrafficKeyEvent[];
   deviceBreakdown: { device: string; count: number }[];
 };
-type WebDailyPoint = { day: string; sf: number; six: number };
-type WebDWStats = {
-  followers: number;
-  followerDelta: number | null;
-  avgDailyReach: number;
-  totalReach30d: number;
-  monthRevenueCents: number;
-  lastSaleCents: number | null;
-  lastSaleAt: string | null;
-  mediaPosts: number;
-  reachByDay: { day: string; dw: number }[];
-};
-type WebTrafficPayload = { sites: WebSiteStats[]; dailyTrend: WebDailyPoint[]; deadWax: WebDWStats };
+type WebDailyPoint = { day: string; sf: number; six: number; dw: number };
+type WebTrafficPayload = { sites: WebSiteStats[]; dailyTrend: WebDailyPoint[] };
 
 type DataPoint = {
   day: string;
@@ -1303,6 +1292,7 @@ function PostingCalendarCard({ data, metric = "reach", days = 365, endDate = "",
           const weekDays: { date: string; label: string }[] = [];
           for (let i = days - 1; i >= 0; i--) {
             const d = new Date(today); d.setDate(d.getDate() - i);
+            if (d > today) continue; // don't show future dates
             const date = d.toISOString().slice(0, 10);
             const label = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
             weekDays.push({ date, label });
@@ -3036,6 +3026,7 @@ function useWindowWidth() {
 const SITE_COLORS: Record<string, string> = {
   Shutterfield: "#ff6b35",
   SixGuess: "#6bb5ff",
+  "Dead Wax Records": "#c084fc",
 };
 
 function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; loading: boolean }) {
@@ -3118,8 +3109,8 @@ function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; load
       <div style={{ background: "var(--card-bg)", borderRadius: 14, padding: "20px 22px", border: "1px solid var(--border)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#fff" }}>Daily Sessions</div>
-          <div style={{ display: "flex", gap: 16 }}>
-            {sites.map((s) => (
+          <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+            {[...sites, { label: "Dead Wax Records" }].map((s) => (
               <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--text-muted)" }}>
                 <div style={{ width: 10, height: 2, background: SITE_COLORS[s.label] ?? "var(--accent)", borderRadius: 2 }} />
                 {s.label}
@@ -3140,96 +3131,15 @@ function WebTrafficTab({ data, loading }: { data: WebTrafficPayload | null; load
             <Tooltip
               contentStyle={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 }}
               labelStyle={{ color: "var(--text-muted)", marginBottom: 4 }}
-              formatter={(value: number, name: string) => [value, name === "sf" ? "Shutterfield" : "SixGuess"]}
+              formatter={(value: number, name: string) => [value, name === "sf" ? "Shutterfield" : name === "six" ? "SixGuess" : "Dead Wax"]}
             />
             <Line type="monotone" dataKey="sf" stroke={sfColor} strokeWidth={2} dot={false} />
             <Line type="monotone" dataKey="six" stroke={sixColor} strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="dw" stroke={SITE_COLORS["Dead Wax Records"]} strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
-      {/* ── Dead Wax Card ─────────────────────────────────────────────── */}
-      {data.deadWax && (() => {
-        const dw = data.deadWax;
-        const dwColor = "#c084fc";
-        const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-        const relTime = (iso: string) => {
-          const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000);
-          if (h < 1) return "just now";
-          if (h < 24) return `${h}h ago`;
-          return `${Math.floor(h / 24)}d ago`;
-        };
-        return (
-          <div style={{ background: "var(--card-bg)", borderRadius: 14, padding: "20px 22px", border: "1px solid var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "#fff" }}>Dead Wax Records</div>
-                <a href="https://deadwax.iotaconsult.com" target="_blank" rel="noopener noreferrer"
-                   style={{ fontSize: 11, color: dwColor, textDecoration: "none" }}>deadwax.iotaconsult.com</a>
-              </div>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: dwColor }} />
-            </div>
-
-            {/* Two column layout: Instagram + Sales */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
-              {/* Instagram */}
-              <div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Instagram</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-                  {[
-                    { label: "Followers", value: dw.followers.toLocaleString(), sub: dw.followerDelta !== null ? `${dw.followerDelta >= 0 ? "+" : ""}${dw.followerDelta} recent` : undefined },
-                    { label: "Avg Reach/Day", value: dw.avgDailyReach.toLocaleString(), sub: "30d avg" },
-                    { label: "Posts", value: dw.mediaPosts.toLocaleString(), sub: "total" },
-                    { label: "Total Reach", value: dw.totalReach30d >= 1000 ? `${(dw.totalReach30d / 1000).toFixed(1)}k` : String(dw.totalReach30d), sub: "30 days" },
-                  ].map(({ label, value, sub }) => (
-                    <div key={label} style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px" }}>
-                      <div style={{ fontSize: 16, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{value}</div>
-                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{label}</div>
-                      {sub && <div style={{ fontSize: 9, color: dwColor, marginTop: 1 }}>{sub}</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Square Sales */}
-              <div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Square Sales</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px" }}>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{fmt(dw.monthRevenueCents)}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Revenue this month</div>
-                  </div>
-                  {dw.lastSaleCents !== null && (
-                    <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "8px 10px" }}>
-                      <div style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{fmt(dw.lastSaleCents)}</div>
-                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Last sale{dw.lastSaleAt ? ` · ${relTime(dw.lastSaleAt)}` : ""}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Reach sparkline */}
-            {dw.reachByDay.length > 1 && (
-              <div>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
-                  Daily Reach — 30 Days
-                </div>
-                <ResponsiveContainer width="100%" height={60}>
-                  <LineChart data={dw.reachByDay} margin={{ left: 0, right: 0, top: 4, bottom: 0 }}>
-                    <Line type="monotone" dataKey="dw" stroke={dwColor} strokeWidth={1.5} dot={false} />
-                    <Tooltip
-                      contentStyle={{ background: "var(--card-bg)", border: "1px solid var(--border)", borderRadius: 6, fontSize: 11 }}
-                      labelStyle={{ color: "var(--text-muted)" }}
-                      formatter={(v: number) => [v.toLocaleString(), "Reach"]}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-          </div>
-        );
-      })()}
     </div>
   );
 }
