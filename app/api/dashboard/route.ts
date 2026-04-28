@@ -412,22 +412,39 @@ export async function GET(request: Request) {
         select
           fpm.post_id,
           fpm.metric_date as activity_day,
+          date(fp.created_time) as created_day,
           max(case when fpm.metric_name = 'post_impressions_unique' then fpm.metric_value end) as reach,
           max(case when fpm.metric_name = 'post_activity_by_action_type.like' then fpm.metric_value end) as likes,
           max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
           max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
         from outlaw_data.facebook_post_metrics fpm
+        join outlaw_data.facebook_posts fp on fp.post_id = fpm.post_id
         where fpm.account_id = '${accountIds.facebook}'
-        group by 1, 2
+          and fp.account_id = '${accountIds.facebook}'
+        group by 1, 2, 3
+      ), lagged as (
+        select
+          post_id,
+          activity_day,
+          created_day,
+          reach,
+          likes,
+          comments,
+          shares,
+          lag(reach) over(partition by post_id order by activity_day) as prev_reach,
+          lag(likes) over(partition by post_id order by activity_day) as prev_likes,
+          lag(comments) over(partition by post_id order by activity_day) as prev_comments,
+          lag(shares) over(partition by post_id order by activity_day) as prev_shares
+        from post_daily
       ), deltas as (
         select
           post_id,
           activity_day,
-          greatest(coalesce(reach, 0) - coalesce(lag(reach) over(partition by post_id order by activity_day), 0), 0) as daily_reach,
-          greatest(coalesce(likes, 0) - coalesce(lag(likes) over(partition by post_id order by activity_day), 0), 0) as daily_likes,
-          greatest(coalesce(comments, 0) - coalesce(lag(comments) over(partition by post_id order by activity_day), 0), 0) as daily_comments,
-          greatest(coalesce(shares, 0) - coalesce(lag(shares) over(partition by post_id order by activity_day), 0), 0) as daily_shares
-        from post_daily
+          case when prev_reach is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(reach, 0) - coalesce(prev_reach, 0), 0) end as daily_reach,
+          case when prev_likes is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(likes, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(comments, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_shares is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(shares, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       )
       select
         d.activity_day,
@@ -457,22 +474,39 @@ export async function GET(request: Request) {
         select
           fpm.post_id,
           fpm.metric_date as activity_day,
+          date(fp.created_time) as created_day,
           max(case when fpm.metric_name = 'post_impressions_unique' then fpm.metric_value end) as reach,
           max(case when fpm.metric_name = 'post_activity_by_action_type.like' then fpm.metric_value end) as likes,
           max(case when fpm.metric_name = 'post_activity_by_action_type.comment' then fpm.metric_value end) as comments,
           max(case when fpm.metric_name = 'post_activity_by_action_type.share' then fpm.metric_value end) as shares
         from outlaw_data.facebook_post_metrics fpm
+        join outlaw_data.facebook_posts fp on fp.post_id = fpm.post_id
         where fpm.account_id = '${accountIds.facebook}'
-        group by 1, 2
+          and fp.account_id = '${accountIds.facebook}'
+        group by 1, 2, 3
+      ), lagged as (
+        select
+          post_id,
+          activity_day,
+          created_day,
+          reach,
+          likes,
+          comments,
+          shares,
+          lag(reach) over(partition by post_id order by activity_day) as prev_reach,
+          lag(likes) over(partition by post_id order by activity_day) as prev_likes,
+          lag(comments) over(partition by post_id order by activity_day) as prev_comments,
+          lag(shares) over(partition by post_id order by activity_day) as prev_shares
+        from post_daily
       ), deltas as (
         select
           post_id,
           activity_day,
-          greatest(coalesce(reach, 0) - coalesce(lag(reach) over(partition by post_id order by activity_day), 0), 0) as daily_reach,
-          greatest(coalesce(likes, 0) - coalesce(lag(likes) over(partition by post_id order by activity_day), 0), 0) as daily_likes,
-          greatest(coalesce(comments, 0) - coalesce(lag(comments) over(partition by post_id order by activity_day), 0), 0) as daily_comments,
-          greatest(coalesce(shares, 0) - coalesce(lag(shares) over(partition by post_id order by activity_day), 0), 0) as daily_shares
-        from post_daily
+          case when prev_reach is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(reach, 0) - coalesce(prev_reach, 0), 0) end as daily_reach,
+          case when prev_likes is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(likes, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(comments, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_shares is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(shares, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       )
       select
         d.activity_day,
@@ -630,23 +664,39 @@ export async function GET(request: Request) {
         group by 1, 2, 3
       ), pivoted as (
         select
+          snapshots.media_id,
+          snapshots.day,
+          min(date(im.timestamp)) as created_day,
+          max(case when snapshots.metric = 'likes' then snapshots.value else 0 end) as likes,
+          max(case when snapshots.metric = 'comments' then snapshots.value else 0 end) as comments,
+          max(case when snapshots.metric = 'saved' then snapshots.value else 0 end) as saves,
+          max(case when snapshots.metric = 'shares' then snapshots.value else 0 end) as shares
+        from snapshots
+        join outlaw_data.instagram_media im on im.media_id = snapshots.media_id
+        group by 1, 2
+      ), lagged as (
+        select
           media_id,
           day,
-          max(case when metric = 'likes' then value else 0 end) as likes,
-          max(case when metric = 'comments' then value else 0 end) as comments,
-          max(case when metric = 'saved' then value else 0 end) as saves,
-          max(case when metric = 'shares' then value else 0 end) as shares
-        from snapshots
-        group by 1, 2
+          created_day,
+          likes,
+          comments,
+          saves,
+          shares,
+          lag(likes) over(partition by media_id order by day) as prev_likes,
+          lag(comments) over(partition by media_id order by day) as prev_comments,
+          lag(saves) over(partition by media_id order by day) as prev_saves,
+          lag(shares) over(partition by media_id order by day) as prev_shares
+        from pivoted
       ), deltas as (
         select
           media_id,
           day,
-          greatest(likes - lag(likes) over(partition by media_id order by day), 0) as daily_likes,
-          greatest(comments - lag(comments) over(partition by media_id order by day), 0) as daily_comments,
-          greatest(saves - lag(saves) over(partition by media_id order by day), 0) as daily_saves,
-          greatest(shares - lag(shares) over(partition by media_id order by day), 0) as daily_shares
-        from pivoted
+          case when prev_likes is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(likes, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(comments, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_saves is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(saves, 0) - coalesce(prev_saves, 0), 0) end as daily_saves,
+          case when prev_shares is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(shares, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       )
       select
         d.day as activity_day,
@@ -682,6 +732,7 @@ export async function GET(request: Request) {
         select
           lp.day,
           s.video_id,
+          date(v.create_time) as created_day,
           s.view_count,
           s.like_count,
           s.comment_count,
@@ -690,22 +741,45 @@ export async function GET(request: Request) {
         join outlaw_data.tiktok_video_snapshots s
           on s.video_id = lp.video_id
          and s.snapshot_timestamp = lp.latest_ts
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+      ), lagged as (
+        select
+          day,
+          video_id,
+          created_day,
+          view_count,
+          like_count,
+          comment_count,
+          share_count,
+          lag(view_count) over(partition by video_id order by day) as prev_views,
+          lag(like_count) over(partition by video_id order by day) as prev_likes,
+          lag(comment_count) over(partition by video_id order by day) as prev_comments,
+          lag(share_count) over(partition by video_id order by day) as prev_shares
+        from daily_snapshots
+      ), video_deltas as (
+        select
+          day,
+          case when prev_views is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(view_count, 0) - coalesce(prev_views, 0), 0) end as daily_views,
+          case when prev_likes is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(like_count, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(comment_count, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_shares is null and day > created_day + interval '1 day' then 0 else greatest(coalesce(share_count, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       ), daily_totals as (
         select
           day,
-          sum(view_count) as views,
-          sum(like_count) as likes,
-          sum(comment_count) as comments,
-          sum(share_count) as shares
-        from daily_snapshots
+          sum(daily_views) as daily_views,
+          sum(daily_likes) as daily_likes,
+          sum(daily_comments) as daily_comments,
+          sum(daily_shares) as daily_shares
+        from video_deltas
         group by 1
       )
       select
         day,
-        greatest(views - lag(views) over(order by day), 0) as daily_views,
-        greatest(likes - lag(likes) over(order by day), 0) as daily_likes,
-        greatest(comments - lag(comments) over(order by day), 0) as daily_comments,
-        greatest(shares - lag(shares) over(order by day), 0) as daily_shares
+        coalesce(daily_views, 0) as daily_views,
+        coalesce(daily_likes, 0) as daily_likes,
+        coalesce(daily_comments, 0) as daily_comments,
+        coalesce(daily_shares, 0) as daily_shares
       from daily_totals
       order by day
     `;
@@ -798,6 +872,7 @@ export async function GET(request: Request) {
         select
           lp.activity_day,
           s.video_id,
+          date(v.create_time) as created_day,
           s.view_count,
           s.like_count,
           s.comment_count,
@@ -806,15 +881,30 @@ export async function GET(request: Request) {
         join outlaw_data.tiktok_video_snapshots s
           on s.video_id = lp.video_id
          and s.snapshot_timestamp = lp.latest_ts
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+      ), lagged as (
+        select
+          activity_day,
+          video_id,
+          created_day,
+          view_count,
+          like_count,
+          comment_count,
+          share_count,
+          lag(view_count) over(partition by video_id order by activity_day) as prev_views,
+          lag(like_count) over(partition by video_id order by activity_day) as prev_likes,
+          lag(comment_count) over(partition by video_id order by activity_day) as prev_comments,
+          lag(share_count) over(partition by video_id order by activity_day) as prev_shares
+        from daily_snapshots
       ), deltas as (
         select
-          ds.activity_day,
-          ds.video_id,
-          greatest(ds.view_count - coalesce(lag(ds.view_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_views,
-          greatest(ds.like_count - coalesce(lag(ds.like_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_likes,
-          greatest(ds.comment_count - coalesce(lag(ds.comment_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_comments,
-          greatest(ds.share_count - coalesce(lag(ds.share_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_shares
-        from daily_snapshots ds
+          activity_day,
+          video_id,
+          case when prev_views is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(view_count, 0) - coalesce(prev_views, 0), 0) end as daily_views,
+          case when prev_likes is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(like_count, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(comment_count, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_shares is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(share_count, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       )
       select
         d.activity_day,
@@ -853,6 +943,7 @@ export async function GET(request: Request) {
         select
           lp.activity_day,
           s.video_id,
+          date(v.create_time) as created_day,
           s.view_count,
           s.like_count,
           s.comment_count,
@@ -861,15 +952,30 @@ export async function GET(request: Request) {
         join outlaw_data.tiktok_video_snapshots s
           on s.video_id = lp.video_id
          and s.snapshot_timestamp = lp.latest_ts
+        join outlaw_data.tiktok_videos v on v.video_id = s.video_id
+      ), lagged as (
+        select
+          activity_day,
+          video_id,
+          created_day,
+          view_count,
+          like_count,
+          comment_count,
+          share_count,
+          lag(view_count) over(partition by video_id order by activity_day) as prev_views,
+          lag(like_count) over(partition by video_id order by activity_day) as prev_likes,
+          lag(comment_count) over(partition by video_id order by activity_day) as prev_comments,
+          lag(share_count) over(partition by video_id order by activity_day) as prev_shares
+        from daily_snapshots
       ), deltas as (
         select
-          ds.activity_day,
-          ds.video_id,
-          greatest(ds.view_count - coalesce(lag(ds.view_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_views,
-          greatest(ds.like_count - coalesce(lag(ds.like_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_likes,
-          greatest(ds.comment_count - coalesce(lag(ds.comment_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_comments,
-          greatest(ds.share_count - coalesce(lag(ds.share_count) over(partition by ds.video_id order by ds.activity_day), 0), 0) as daily_shares
-        from daily_snapshots ds
+          activity_day,
+          video_id,
+          case when prev_views is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(view_count, 0) - coalesce(prev_views, 0), 0) end as daily_views,
+          case when prev_likes is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(like_count, 0) - coalesce(prev_likes, 0), 0) end as daily_likes,
+          case when prev_comments is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(comment_count, 0) - coalesce(prev_comments, 0), 0) end as daily_comments,
+          case when prev_shares is null and activity_day > created_day + interval '1 day' then 0 else greatest(coalesce(share_count, 0) - coalesce(prev_shares, 0), 0) end as daily_shares
+        from lagged
       )
       select
         d.activity_day,
