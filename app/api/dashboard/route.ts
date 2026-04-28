@@ -292,19 +292,12 @@ export async function GET(request: Request) {
         from outlaw_data.tiktok_account_history
         where open_id = '${accountIds.tiktok}'
         group by 1
-      ), tk as (
-        select * from tk_history
-        union all
-        select date(last_synced_at) as day, follower_count as followers
-        from outlaw_data.tiktok_accounts
-        where open_id = '${accountIds.tiktok}'
-          and not exists (select 1 from tk_history)
       )
       select 'facebook' as platform, day, followers from fb
       union all
       select 'instagram' as platform, day, followers from ig
       union all
-      select 'tiktok' as platform, day, followers from tk
+      select 'tiktok' as platform, day, followers from tk_history
       order by day asc, platform asc
     `;
 
@@ -822,9 +815,9 @@ export async function GET(request: Request) {
 
     const tiktokAccountSql = `
       select follower_count, following_count, likes_count, video_count, is_verified
-      from outlaw_data.tiktok_accounts
+      from outlaw_data.tiktok_account_history
       where open_id = '${accountIds.tiktok}'
-      order by last_synced_at desc
+      order by synced_at desc
       limit 1
     `;
 
