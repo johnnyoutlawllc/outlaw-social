@@ -3271,30 +3271,32 @@ export default function DashboardPage() {
             <div className="pill">{formatCompactNumber(followerSummary)} total followers</div>
           </div>
         )}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
-          Account
-          <select
-            value={selectedAccount}
-            onChange={(event) => {
-              setSelectedAccount(event.target.value);
-              setActiveTab("all");
-            }}
-            style={{
-              background: "var(--card-bg)",
-              color: "var(--text)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "8px 10px",
-              fontWeight: 700,
-            }}
-          >
-            {data.accounts.map((account) => (
-              <option key={account.key} value={account.key}>
-                {account.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        {activeTab !== "webtraffic" && (
+          <label style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--text-muted)", fontSize: 13 }}>
+            Account
+            <select
+              value={selectedAccount}
+              onChange={(event) => {
+                setSelectedAccount(event.target.value);
+                setActiveTab("all");
+              }}
+              style={{
+                background: "var(--card-bg)",
+                color: "var(--text)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "8px 10px",
+                fontWeight: 700,
+              }}
+            >
+              {data.accounts.map((account) => (
+                <option key={account.key} value={account.key}>
+                  {account.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <form action="/api/auth/signout" method="post">
           <button className="btn-ghost" type="submit">Sign out</button>
         </form>

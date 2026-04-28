@@ -41,8 +41,12 @@ async function fetchEvents(schema: "sf" | "six"): Promise<EventRow[]> {
   return (data ?? []) as EventRow[];
 }
 async function fetchPageVisits(): Promise<PageVisitRow[]> {
-  const { data, error } = await dataClient().schema("outlaw_data").from("page_visits")
-    .select("user_email,page_name,visited_at,duration_seconds,device_type");
+  const { data, error } = await dataClient().rpc("execute_explorer_query", {
+    p_sql: `
+      select user_email, page_name, visited_at, duration_seconds, device_type
+      from outlaw_data.page_visits
+    `,
+  });
   if (error) throw new Error(`page_visits: ${error.message}`);
   return (data ?? []) as PageVisitRow[];
 }
